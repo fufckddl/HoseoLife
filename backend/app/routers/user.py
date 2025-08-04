@@ -10,6 +10,10 @@ from jose import jwt, JWTError
 from datetime import datetime, timedelta
 from typing import Union
 import os
+from app.models.post import Post
+from app.models.comment import Comment
+from app.models.report import Report, UserPenalty
+from app.models.contact import Contact
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "secret")
 ALGORITHM = "HS256"
@@ -239,3 +243,68 @@ def update_notification_settings(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"알림 설정 업데이트에 실패했습니다: {str(e)}") 
+
+# 회원 탈퇴
+@router.delete("/withdraw", status_code=status.HTTP_200_OK)
+def withdraw_user(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """사용자 회원 탈퇴를 처리합니다."""
+    try:
+        print(f"회원 탈퇴 시작: 사용자 {current_user.nickname} (ID: {current_user.id})")
+        
+        # "삭제된 사용자" 레코드 생성 또는 조회
+        deleted_user = db.query(User).filter(User.email == "deleted@deleted.com").first()
+        if not deleted_user:
+            deleted_user = User(
+                email="deleted@deleted.com",
+                nickname="알 수 없음",
+                hashed_password="",  # 빈 문자열
+                university="",
+                is_admin=False,
+                is_premium=False
+            )
+            db.add(deleted_user)
+            db.flush()  # ID 생성
+        
+        # 1. 사용자가 작성한 게시글들의 작성자를 "삭제된 사용자"로 변경
+        posts = db.query(Post).filter(Post.author_id == current_user.id).all()
+        for post in posts:
+            post.author_id = deleted_user.id
+        
+        # 2. 사용자가 작성한 댓글들의 작성자를 "삭제된 사용자"로 변경
+        comments = db.query(Comment).filter(Comment.author_id == current_user.id).all()
+        for comment in comments:
+            comment.author_id = deleted_user.id
+        
+        # 3. 사용자가 작성한 신고들의 신고자를 "삭제된 사용자"로 변경
+        reports = db.query(Report).filter(Report.reporter_id == current_user.id).all()
+        for report in reports:
+            report.reporter_id = deleted_user.id
+        
+        # 4. 사용자 관련 처벌 기록들 삭제
+        penalties = db.query(UserPenalty).filter(UserPenalty.user_id == current_user.id).all()
+        for penalty in penalties:
+            db.delete(penalty)
+        
+        # 5. 사용자 관련 연락처 기록들 삭제
+        contacts = db.query(Contact).filter(Contact.user_id == current_user.id).all()
+        for contact in contacts:
+            db.delete(contact)
+        
+        # 6. 사용자 정보 삭제
+        db.delete(current_user)
+        
+        db.commit()
+        print(f"회원 탈퇴 완료: 사용자 {current_user.nickname}")
+        
+        return {"message": "회원 탈퇴가 완료되었습니다."}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"회원 탈퇴 실패: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="회원 탈퇴 처리 중 오류가 발생했습니다."
+        ) 

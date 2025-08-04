@@ -430,6 +430,23 @@ def get_user_active_penalties(
 ):
     """사용자가 본인의 활성 처벌을 조회합니다."""
     
+    # 임시정지 기간이 만료된 처벌들을 자동으로 비활성화
+    expired_penalties = db.query(UserPenalty).filter(
+        UserPenalty.user_id == current_user.id,
+        UserPenalty.is_active == True,
+        UserPenalty.penalty_type == PenaltyType.TEMPORARY_BAN,
+        UserPenalty.end_date.isnot(None),
+        UserPenalty.end_date < datetime.utcnow()
+    ).all()
+    
+    for penalty in expired_penalties:
+        penalty.is_active = False
+        print(f"임시정지 만료 처리: 사용자 {current_user.nickname}, 처벌 ID {penalty.id}")
+    
+    if expired_penalties:
+        db.commit()
+    
+    # 활성 처벌 조회 (만료된 것은 제외됨)
     penalties = db.query(UserPenalty).filter(
         UserPenalty.user_id == current_user.id,
         UserPenalty.is_active == True

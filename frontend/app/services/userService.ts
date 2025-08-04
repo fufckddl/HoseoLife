@@ -325,6 +325,41 @@ class UserService {
       throw error;
     }
   }
+
+  // 회원 탈퇴
+  async withdraw(): Promise<void> {
+    try {
+      const token = await AsyncStorage.getItem('access_token');
+      if (!token) {
+        throw new Error('인증 토큰이 없습니다.');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/users/withdraw`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '회원 탈퇴에 실패했습니다.');
+      }
+
+      // 로컬 저장소 정리
+      await AsyncStorage.multiRemove([
+        'access_token',
+        'refresh_token',
+        'user_info'
+      ]);
+
+      console.log('회원 탈퇴 완료');
+    } catch (error) {
+      console.error('회원 탈퇴 실패:', error);
+      throw error;
+    }
+  }
 }
 
 export const userService = new UserService(); 

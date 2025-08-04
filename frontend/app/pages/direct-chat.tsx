@@ -142,47 +142,68 @@ export default function DirectChatScreen() {
     }
   };
 
-  const renderMessage = ({ item }: { item: DirectMessageData }) => {
+  const renderMessage = ({ item, index }: { item: DirectMessageData; index: number }) => {
     const isMyMessage = item.sender_id === user?.id;
+    const prevMessage = index > 0 ? messages[index - 1] : null;
+    const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
+    
+    // 날짜 구분선 표시 여부 확인
+    const showDateDivider = shouldShowDateDivider(item, prevMessage);
+    
+    // 시간 표시 여부 확인 (같은 사용자가 같은 시간에 연속 메시지인 경우 숨김)
+    const showTime = shouldShowTime(item, nextMessage);
     
     return (
-      <View style={[
-        styles.messageContainer,
-        isMyMessage ? styles.myMessageContainer : styles.otherMessageContainer
-      ]}>
-        {!isMyMessage && (
-          <View style={styles.senderInfo}>
-            {item.sender_profile_image_url ? (
-              <Image 
-                source={{ uri: item.sender_profile_image_url, cache: 'reload' }} 
-                style={styles.senderProfileImage} 
-              />
-            ) : (
-              <Image 
-                source={require('../../assets/images/camsaw_human.png')} 
-                style={styles.senderProfileImage} 
-              />
-            )}
-            <Text style={styles.senderName}>{item.sender_nickname}</Text>
+      <View>
+        {/* 날짜 구분선 */}
+        {showDateDivider && (
+          <View style={styles.dateDivider}>
+            <Text style={styles.dateDividerText}>
+              {formatMessageDate(item.created_at)}
+            </Text>
           </View>
         )}
+        
         <View style={[
-          styles.messageBubble,
-          isMyMessage ? styles.myMessageBubble : styles.otherMessageBubble
+          styles.messageContainer,
+          isMyMessage ? styles.myMessageContainer : styles.otherMessageContainer
         ]}>
-          <Text style={[
-            styles.messageText,
-            isMyMessage ? styles.myMessageText : styles.otherMessageText
+          {!isMyMessage && (
+            <View style={styles.senderInfo}>
+              {item.sender_profile_image_url ? (
+                <Image 
+                  source={{ uri: item.sender_profile_image_url, cache: 'reload' }} 
+                  style={styles.senderProfileImage} 
+                />
+              ) : (
+                <Image 
+                  source={require('../../assets/images/camsaw_human.png')} 
+                  style={styles.senderProfileImage} 
+                />
+              )}
+              <Text style={styles.senderName}>{item.sender_nickname}</Text>
+            </View>
+          )}
+          <View style={[
+            styles.messageBubble,
+            isMyMessage ? styles.myMessageBubble : styles.otherMessageBubble
           ]}>
-            {item.content}
-          </Text>
+            <Text style={[
+              styles.messageText,
+              isMyMessage ? styles.myMessageText : styles.otherMessageText
+            ]}>
+              {item.content}
+            </Text>
+          </View>
+          {showTime && (
+            <Text style={[
+              styles.messageTime,
+              isMyMessage ? styles.myMessageTime : styles.otherMessageTime
+            ]}>
+              {formatMessageTime(item.created_at)}
+            </Text>
+          )}
         </View>
-        <Text style={[
-          styles.messageTime,
-          isMyMessage ? styles.myMessageTime : styles.otherMessageTime
-        ]}>
-          {formatMessageTime(item.created_at)}
-        </Text>
       </View>
     );
   };
@@ -194,6 +215,61 @@ export default function DirectChatScreen() {
     const hours = String(koreaTime.getHours()).padStart(2, '0');
     const minutes = String(koreaTime.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
+  };
+
+  // UTC 시간을 한국 시간으로 변환하는 함수
+  const convertToKoreaTime = (dateString: string) => {
+    const date = new Date(dateString);
+    // UTC 시간에 9시간을 더해서 한국 시간으로 변환
+    const koreaTime = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+    return koreaTime;
+  };
+
+  // 날짜 포맷팅 함수 (예: "2024년 1월 15일")
+  const formatMessageDate = (dateString: string) => {
+    const koreaDate = convertToKoreaTime(dateString);
+    const year = koreaDate.getFullYear();
+    const month = koreaDate.getMonth() + 1;
+    const date = koreaDate.getDate();
+    return `${year}년 ${month}월 ${date}일`;
+  };
+
+  // 날짜 구분선 표시 여부 확인
+  const shouldShowDateDivider = (currentMessage: DirectMessageData, prevMessage: DirectMessageData | null) => {
+    if (!prevMessage) return true; // 첫 번째 메시지
+    
+    const currentDate = convertToKoreaTime(currentMessage.created_at);
+    const prevDate = convertToKoreaTime(prevMessage.created_at);
+    
+    return (
+      currentDate.getDate() !== prevDate.getDate() ||
+      currentDate.getMonth() !== prevDate.getMonth() ||
+      currentDate.getFullYear() !== prevDate.getFullYear()
+    );
+  };
+
+  // 시간 표시 여부 확인
+  const shouldShowTime = (currentMessage: DirectMessageData, nextMessage: DirectMessageData | null) => {
+    if (!nextMessage) return true; // 마지막 메시지
+    
+    // 다음 메시지가 같은 사용자이고 같은 시간대인 경우 시간 숨김
+    if (currentMessage.sender_id === nextMessage.sender_id) {
+      const currentTime = convertToKoreaTime(currentMessage.created_at);
+      const nextTime = convertToKoreaTime(nextMessage.created_at);
+      
+      // 1분 이내의 메시지는 같은 시간대로 간주
+      const timeDiff = Math.abs(nextTime.getTime() - currentTime.getTime());
+      const oneMinute = 60 * 1000; // 1분을 밀리초로
+      
+      return timeDiff > oneMinute;
+    }
+    
+    return true; // 다른 사용자의 메시지이거나 마지막 메시지
+  };
+
+  // 고유한 키 생성 함수
+  const generateUniqueKey = (item: DirectMessageData, index: number) => {
+    return `message-${item.id}-${index}`;
   };
 
   if (loading) {
@@ -262,7 +338,7 @@ export default function DirectChatScreen() {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={generateUniqueKey}
           style={styles.messagesList}
           contentContainerStyle={styles.messagesContainer}
           showsVerticalScrollIndicator={false}
@@ -495,6 +571,18 @@ const styles = StyleSheet.create({
   },
   otherMessageTime: {
     alignSelf: 'flex-start',
+  },
+  dateDivider: {
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dateDividerText: {
+    fontSize: 12,
+    color: '#999',
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   inputContainer: {
     flexDirection: 'row',

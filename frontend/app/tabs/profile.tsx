@@ -107,6 +107,40 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleWithdraw = async () => {
+    Alert.alert(
+      '회원 탈퇴',
+      '정말 회원 탈퇴를 진행하시겠습니까?\n\n탈퇴 시 모든 개인정보가 삭제되며, 복구할 수 없습니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '탈퇴',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await userService.withdraw();
+              Alert.alert(
+                '탈퇴 완료',
+                '회원 탈퇴가 완료되었습니다.',
+                [
+                  {
+                    text: '확인',
+                    onPress: () => {
+                      router.push('/tabs/home');
+                    }
+                  }
+                ]
+              );
+            } catch (error) {
+              console.error('회원 탈퇴 실패:', error);
+              Alert.alert('오류', '회원 탈퇴에 실패했습니다.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const requestImagePickerPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -326,7 +360,7 @@ export default function ProfileScreen() {
               <TouchableOpacity style={styles.accountButton} onPress={handleLogout}>
                 <Text style={styles.accountButtonText}>로그아웃</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.accountButton}>
+              <TouchableOpacity style={styles.accountButton} onPress={handleWithdraw}>
                 <Text style={styles.accountButtonText}>회원탈퇴</Text>
               </TouchableOpacity>
             </View>

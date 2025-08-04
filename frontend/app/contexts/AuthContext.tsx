@@ -152,8 +152,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const penalties = await reportService.getUserActivePenalties();
       console.log('조회된 처벌:', penalties.length, '개');
       
+      // 현재 시간 기준으로 유효한 처벌만 필터링
+      const now = new Date();
+      const validPenalties = penalties.filter(penalty => {
+        // 영구정지는 항상 유효
+        if (penalty.penalty_type === '영구정지') {
+          return true;
+        }
+        
+        // 임시정지는 end_date가 있고, 아직 만료되지 않은 것만
+        if (penalty.penalty_type === '임시정지' && penalty.end_date) {
+          const endDate = new Date(penalty.end_date);
+          return endDate > now;
+        }
+        
+        // 경고는 항상 유효 (is_active가 true인 것만)
+        if (penalty.penalty_type === '경고') {
+          return penalty.is_active;
+        }
+        
+        return false;
+      });
+      
+      console.log('유효한 처벌:', validPenalties.length, '개');
+      
       // 정지 상태 확인 (임시 정지 또는 영구 정지)
-      const suspensionPenalties = penalties.filter(penalty => 
+      const suspensionPenalties = validPenalties.filter(penalty => 
         penalty.penalty_type === '임시정지' || penalty.penalty_type === '영구정지'
       );
       
@@ -172,7 +196,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       // 일반 처벌 알림 (경고 등)
-      const warningPenalties = penalties.filter(penalty => 
+      const warningPenalties = validPenalties.filter(penalty => 
         penalty.penalty_type === '경고'
       );
       
