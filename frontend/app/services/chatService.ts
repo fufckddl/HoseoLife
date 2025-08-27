@@ -1,317 +1,390 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ChatRoom, ChatMessage } from './websocketService';
 
-const API_BASE_URL = 'http://your-server-ip:5000';
-
-// 타입 정의
-export interface ChatRoomData {
-  id: number;
-  title: string;
-  purpose: string;
-  created_by: number;
-  created_at: string;
-  is_active: boolean;
-  is_approved: boolean;
-  approved_by?: number;
-  approved_at?: string;
-  creator_nickname: string;
-  creator_profile_image_url?: string;  // 생성자 프로필 이미지 URL
-  member_count: number;
-  last_message?: string;
-  last_message_time?: string;
-}
-
-export interface ChatRoomDetailData {
-  id: number;
-  title: string;
-  purpose: string;
-  created_by: number;
-  created_at: string;
-  is_active: boolean;
-  is_approved: boolean;
-  approved_by?: number;
-  approved_at?: string;
-  creator_nickname: string;
-  creator_profile_image_url?: string;  // 생성자 프로필 이미지 URL
-  members: Array<{
-    id: number;
-    nickname: string;
-    joined_at: string;
-  }>;
-}
-
-export interface ChatMessageData {
-  id: number;
-  chat_id: number;
-  sender_id: number;
-  content: string;
-  created_at: string;
-  sender_nickname: string;
-  sender_profile_image_url?: string;  // 발신자 프로필 이미지 URL
-}
-
-export interface ChatRoomListData {
-  pending_rooms: ChatRoomData[];
-  approved_rooms: ChatRoomData[];
-  total_pending: number;
-  total_approved: number;
-}
-
-export interface CreateChatRoomData {
-  title: string;
-  purpose: string;
-}
-
-export interface SendMessageData {
-  content: string;
-}
-
-export interface ApprovalData {
-  is_approved: boolean;
-  admin_response?: string;
-}
+const API_BASE_URL = 'https://camsaw.kro.kr';
 
 class ChatService {
-  private async getAuthHeaders(): Promise<HeadersInit> {
+  private async getAuthHeaders(): Promise<Record<string, string>> {
     const token = await AsyncStorage.getItem('access_token');
-    console.log('ChatService - 토큰:', token ? '존재함' : '없음');
-    
-    if (!token) {
-      throw new Error('인증 토큰이 없습니다. 다시 로그인해주세요.');
+    console.log('ChatService - 토큰 확인:', token ? '토큰 있음' : '토큰 없음');
+    if (token) {
+      console.log('ChatService - 토큰 일부:', token.substring(0, 20) + '...');
     }
-    
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
     };
   }
 
-  // 채팅방 생성 요청
-  async createChatRoom(data: CreateChatRoomData): Promise<ChatRoomData> {
+  // 채팅방 목록 조회
+  async getChatRooms(): Promise<ChatRoom[]> {
     try {
       const headers = await this.getAuthHeaders();
-      
+      const response = await fetch(`${API_BASE_URL}/chat/rooms`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('채팅방 목록 조회 실패:', error);
+      throw error;
+    }
+  }
+
+  // 채팅방 생성
+  async createChatRoom(type: 'dm' | 'group', members: number[], name?: string): Promise<ChatRoom> {
+    try {
+      const headers = await this.getAuthHeaders();
       const response = await fetch(`${API_BASE_URL}/chat/rooms`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          type,
+          members,
+          name,
+        }),
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('채팅방 생성 API 오류 응답:', errorText);
-        throw new Error('채팅방 생성에 실패했습니다.');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('채팅방 생성 응답:', result);
-      return result;
+      return await response.json();
     } catch (error) {
-      console.error('채팅방 생성 오류:', error);
+      console.error('채팅방 생성 실패:', error);
       throw error;
     }
   }
 
-  // 사용자의 채팅방 목록 조회
-  async getUserChatRooms(skip: number = 0, limit: number = 20): Promise<ChatRoomListData> {
+  // 채팅방 메시지 조회
+  async getChatMessages(roomId: number, cursor?: number, limit: number = 50): Promise<ChatMessage[]> {
     try {
       const headers = await this.getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/chat/rooms?skip=${skip}&limit=${limit}`, {
+      const params = new URLSearchParams();
+      if (cursor) params.append('cursor', cursor.toString());
+      params.append('limit', limit.toString());
+
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/messages?${params}`, {
         method: 'GET',
         headers,
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('채팅방 목록 API 오류 응답:', errorText);
-        throw new Error('채팅방 목록 조회에 실패했습니다.');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('채팅방 목록 응답:', result);
-      return result;
+      return await response.json();
     } catch (error) {
-      console.error('채팅방 목록 조회 오류:', error);
-      throw error;
-    }
-  }
-
-  // 채팅방 상세 정보 조회
-  async getChatRoomDetail(roomId: number): Promise<ChatRoomDetailData> {
-    try {
-      const headers = await this.getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}`, {
-        method: 'GET',
-        headers,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('채팅방 상세 API 오류 응답:', errorText);
-        throw new Error('채팅방 상세 정보 조회에 실패했습니다.');
-      }
-
-      const result = await response.json();
-      console.log('채팅방 상세 응답:', result);
-      return result;
-    } catch (error) {
-      console.error('채팅방 상세 조회 오류:', error);
-      throw error;
-    }
-  }
-
-  // 채팅방 메시지 목록 조회
-  async getChatMessages(roomId: number, skip: number = 0, limit: number = 50): Promise<ChatMessageData[]> {
-    try {
-      const headers = await this.getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/messages?skip=${skip}&limit=${limit}`, {
-        method: 'GET',
-        headers,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('메시지 목록 API 오류 응답:', errorText);
-        throw new Error('메시지 목록 조회에 실패했습니다.');
-      }
-
-      const result = await response.json();
-      console.log('메시지 목록 응답:', result);
-      return result;
-    } catch (error) {
-      console.error('메시지 목록 조회 오류:', error);
+      console.error('채팅 메시지 조회 실패:', error);
       throw error;
     }
   }
 
   // 메시지 전송
-  async sendMessage(roomId: number, data: SendMessageData): Promise<ChatMessageData> {
+  async sendMessage(roomId: number, content: string, clientMsgId?: string): Promise<ChatMessage> {
     try {
       const headers = await this.getAuthHeaders();
-      
       const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/messages`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          text: content,  // content를 text로 변경
+          clientMsgId: clientMsgId,  // client_msg_id를 clientMsgId로 변경
+        }),
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('메시지 전송 API 오류 응답:', errorText);
-        throw new Error('메시지 전송에 실패했습니다.');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('메시지 전송 응답:', result);
-      return result;
+      return await response.json();
     } catch (error) {
-      console.error('메시지 전송 오류:', error);
+      console.error('메시지 전송 실패:', error);
       throw error;
     }
   }
 
-  // 관리자용 채팅방 승인/거부
-  async approveChatRoom(roomId: number, data: ApprovalData): Promise<ChatRoomData> {
+  // 푸시 토큰 등록
+  async registerPushToken(expoPushToken: string): Promise<void> {
     try {
       const headers = await this.getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/approve`, {
-        method: 'PUT',
+      const response = await fetch(`${API_BASE_URL}/chat/push/register`, {
+        method: 'POST',
         headers,
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          expo_push_token: expoPushToken,
+        }),
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('채팅방 승인 API 오류 응답:', errorText);
-        throw new Error('채팅방 승인 처리에 실패했습니다.');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('채팅방 승인 응답:', result);
-      return result;
+      console.log('푸시 토큰 등록 성공');
     } catch (error) {
-      console.error('채팅방 승인 오류:', error);
+      console.error('푸시 토큰 등록 실패:', error);
       throw error;
     }
   }
 
-  // 전체 채팅방 목록 조회
-  async getAllChatRooms(skip: number = 0, limit: number = 20): Promise<ChatRoomData[]> {
+  // 1:1 채팅방 찾기 또는 생성 (새로운 Room 모델)
+  async findOrCreateDirectChat(otherUserId: number): Promise<any> {
+    try {
+      console.log('🔍 1:1 채팅방 찾기/생성 시작 - 상대방 ID:', otherUserId);
+      
+      const headers = await this.getAuthHeaders();
+      console.log('📡 1:1 채팅방 조회 요청 - URL:', `${API_BASE_URL}/chat/rooms/dm/new?target_user_id=${otherUserId}`);
+      
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/dm/new?target_user_id=${otherUserId}`, {
+        method: 'GET',
+        headers,
+      });
+
+      console.log('📊 1:1 채팅방 조회 응답 - 상태:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ 1:1 채팅방 조회 실패 - 응답 내용:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ 1:1 채팅방 조회 결과:', result);
+      
+      return result.room;
+    } catch (error) {
+      console.error('❌ 1:1 채팅방 찾기/생성 실패:', error);
+      throw error;
+    }
+  }
+
+  // 그룹 채팅방 메시지 조회 (새로운 Room 모델)
+  async getGroupChatMessages(roomId: number, limit: number = 50): Promise<any> {
     try {
       const headers = await this.getAuthHeaders();
+      console.log('🔍 그룹 채팅방 메시지 조회 - Room ID:', roomId);
       
-      const response = await fetch(`${API_BASE_URL}/chat/rooms/all?skip=${skip}&limit=${limit}`, {
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/messages/new?limit=${limit}`, {
         method: 'GET',
         headers,
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('전체 채팅방 목록 API 오류 응답:', errorText);
-        throw new Error('전체 채팅방 목록 조회에 실패했습니다.');
+        console.error('❌ 그룹 채팅방 메시지 조회 실패 - 상태:', response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('전체 채팅방 목록 응답:', result);
-      return result;
+      const data = await response.json();
+      console.log('✅ 그룹 채팅방 메시지 조회 성공 - 메시지 수:', data.messages?.length || 0);
+      return data;
     } catch (error) {
-      console.error('전체 채팅방 목록 조회 오류:', error);
+      console.error('❌ 그룹 채팅방 메시지 조회 실패:', error);
       throw error;
     }
   }
 
-  // 채팅방 참여
-  async joinChatRoom(roomId: number): Promise<ChatRoomData> {
+  // 그룹 채팅방 메시지 전송 (새로운 Room 모델)
+  async sendGroupMessage(roomId: number, content: string): Promise<any> {
     try {
       const headers = await this.getAuthHeaders();
+      console.log('📤 그룹 채팅방 메시지 전송 - Room ID:', roomId, '내용:', content);
       
-      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/join`, {
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/messages/new`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          text: content,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('❌ 그룹 채팅방 메시지 전송 실패 - 상태:', response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ 그룹 채팅방 메시지 전송 성공 - 메시지 ID:', data.id);
+      return data;
+    } catch (error) {
+      console.error('❌ 그룹 채팅방 메시지 전송 실패:', error);
+      throw error;
+    }
+  }
+
+  // 이미지 업로드 및 전송 (최대 10장)
+  async sendImages(roomId: number, images: { uri: string; type?: string; base64?: string }[]): Promise<any> {
+    try {
+      const headers = await this.getAuthHeaders();
+      // base64로 변환해서 전송 (네이티브에서 FormData 문제 회피)
+      const payload: any = { images: [] };
+      for (let i = 0; i < Math.min(images.length, 10); i++) {
+        const img: any = images[i];
+        if (img.base64) {
+          payload.images.push({ content_type: img.type || 'image/jpeg', data_base64: img.base64 });
+        } else {
+          // 폴백: 일부 환경에서 base64가 없을 때만 네트워크로 읽기
+          const res = await fetch(img.uri);
+          const blob = await res.blob();
+          // @ts-ignore
+          const reader = new FileReader();
+          const b64: string = await new Promise((resolve, reject) => {
+            reader.onerror = () => reject(new Error('base64 변환 실패'));
+            reader.onload = () => {
+              const result = (reader.result as string) || '';
+              const comma = result.indexOf(',');
+              resolve(comma >= 0 ? result.slice(comma + 1) : result);
+            };
+            reader.readAsDataURL(blob);
+          });
+          payload.images.push({ content_type: img.type || blob.type || 'image/jpeg', data_base64: b64 });
+        }
+      }
+      let response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/images`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const status = response.status;
+        // 상태코드 전달을 위해 구조화된 에러를 던짐
+        // 403/415/422 등인 경우 FormData 폴백 시도
+        if (status === 403 || status === 415 || status === 422) {
+          try {
+            const token = await AsyncStorage.getItem('access_token');
+            const form = new FormData();
+            for (let i = 0; i < Math.min(images.length, 10); i++) {
+              const img: any = images[i];
+              // React Native 환경에서는 FormData에 파일을 추가할 때 아래와 같이 객체를 전달해야 함
+              // 하지만 타입스크립트 타입과 웹 FormData와 달라서 lint 에러가 발생할 수 있음
+              // 실제 네이티브 환경에서는 아래 방식이 동작함
+              form.append(
+                'files',
+                {
+                  uri: img.uri,
+                  type: img.type || 'image/jpeg',
+                  name: `image_${i}.jpg`,
+                } as any
+              );
+            }
+            response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/images`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                // Content-Type은 자동 설정되도록 비움 (boundary 포함)
+              } as any,
+              body: form as any,
+            });
+            if (!response.ok) {
+              throw { __http: true, status: response.status, message: 'HTTP error (multipart fallback)', endpoint: `/chat/rooms/${roomId}/images` };
+            }
+          } catch (fallbackErr) {
+            throw fallbackErr;
+          }
+        } else {
+          throw { __http: true, status, message: `HTTP error`, endpoint: `/chat/rooms/${roomId}/images` };
+        }
+      }
+      return await response.json();
+    } catch (e) {
+      console.error('❌ 이미지 전송 실패:', e);
+      throw e;
+    }
+  }
+
+  // 채팅방 참여자 목록 조회
+  async getRoomParticipants(roomId: number): Promise<any> {
+    try {
+      const headers = await this.getAuthHeaders();
+      console.log('🔍 채팅방 참여자 목록 조회 - Room ID:', roomId);
+      
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/participants`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        console.error('❌ 참여자 목록 조회 실패 - 상태:', response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ 참여자 목록 조회 성공 - 참여자 수:', data.total_count);
+      return data;
+    } catch (error) {
+      console.error('❌ 참여자 목록 조회 실패:', error);
+      throw error;
+    }
+  }
+
+  // 채팅방 나가기
+  async leaveRoom(roomId: number): Promise<any> {
+    try {
+      const headers = await this.getAuthHeaders();
+      console.log('🚪 채팅방 나가기 - Room ID:', roomId);
+      
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/leave`, {
         method: 'POST',
         headers,
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('채팅방 참여 API 오류 응답:', errorText);
-        throw new Error('채팅방 참여에 실패했습니다.');
+        console.error('❌ 채팅방 나가기 실패 - 상태:', response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('채팅방 참여 응답:', result);
-      return result;
+      const data = await response.json();
+      console.log('✅ 채팅방 나가기 성공:', data.message);
+      return data;
     } catch (error) {
-      console.error('채팅방 참여 오류:', error);
+      console.error('❌ 채팅방 나가기 실패:', error);
       throw error;
     }
   }
 
-  // 관리자용 대기 중인 채팅방 목록 조회
-  async getPendingChatRooms(skip: number = 0, limit: number = 20): Promise<ChatRoomData[]> {
+  // 방별 알림 설정 토글
+  async toggleRoomNotifications(roomId: number, enabled: boolean): Promise<any> {
     try {
       const headers = await this.getAuthHeaders();
-      
-      const response = await fetch(`${API_BASE_URL}/chat/admin/pending?skip=${skip}&limit=${limit}`, {
-        method: 'GET',
+      console.log('🔔 방 알림 토글 - Room ID:', roomId, 'enabled:', enabled);
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/notifications/toggle?enabled=${enabled}`, {
+        method: 'POST',
         headers,
       });
-
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('대기 중인 채팅방 목록 API 오류 응답:', errorText);
-        throw new Error('대기 중인 채팅방 목록 조회에 실패했습니다.');
+        console.error('❌ 방 알림 토글 실패 - 상태:', response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      const result = await response.json();
-      console.log('대기 중인 채팅방 목록 응답:', result);
-      return result;
+      const data = await response.json();
+      console.log('✅ 방 알림 토글 성공:', data);
+      return data;
     } catch (error) {
-      console.error('대기 중인 채팅방 목록 조회 오류:', error);
+      console.error('❌ 방 알림 토글 실패:', error);
       throw error;
     }
+  }
+
+  // 방별 알림 설정 조회
+  async getRoomNotifications(roomId: number): Promise<{ room_id: number; notifications_enabled: boolean }>{
+    const headers = await this.getAuthHeaders();
+    const resp = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/notifications`, {
+      method: 'GET',
+      headers,
+    });
+    if (!resp.ok) {
+      if (resp.status === 404) {
+        console.log('🔕 알림 설정 엔드포인트 404 - 기본값 true로 대체');
+        return { room_id: roomId, notifications_enabled: true };
+      }
+      throw new Error(`HTTP error! status: ${resp.status}`);
+    }
+    return resp.json();
   }
 }
 
-export const chatService = new ChatService(); 
+// 싱글톤 인스턴스
+export const chatService = new ChatService();

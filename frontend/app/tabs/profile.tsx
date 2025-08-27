@@ -4,6 +4,7 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, Switch, Alert, SafeAre
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { userService } from '../services/userService';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -224,7 +225,7 @@ export default function ProfileScreen() {
       // 먼저 서버 연결 테스트
       console.log('서버 연결 테스트 시작...');
       try {
-        const testResponse = await fetch('http://your-server-ip:5000/users/upload-profile-image', {
+        const testResponse = await fetch('https://camsaw.kro.kr/users/upload-profile-image', {
           method: 'GET',
           headers: {
             'Accept': 'application/json',
@@ -237,7 +238,7 @@ export default function ProfileScreen() {
 
       console.log('FormData 생성 완료');
 
-      const response = await fetch('http://your-server-ip:5000/users/upload-profile-image', {
+      const response = await fetch('https://camsaw.kro.kr/users/upload-profile-image', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -309,7 +310,7 @@ export default function ProfileScreen() {
       <View style={styles.topBar}>
         {/* 왼쪽: 뒤로가기 버튼 */}
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
       </View>
 
@@ -407,15 +408,30 @@ export default function ProfileScreen() {
                     <Text style={styles.additionalText}>신고내역</Text>
                   </TouchableOpacity>
                   
-                  {/* 채팅방 관련 버튼들 */}
-                  <View style={styles.chatSection}>
-                    <TouchableOpacity style={styles.chatButton} onPress={() => router.push('/pages/chat-list')}>
-                      <Text style={styles.chatButtonText}>내 채팅방</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.chatButton} onPress={() => router.push('/pages/all-chat-rooms')}>
-                      <Text style={styles.chatButtonText}>전체 채팅방</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/scrap-list')}>
+                    <Text style={styles.additionalText}>스크랩 목록</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/my-posts' as any)}>
+                    <Text style={styles.additionalText}>내가 작성한 게시글</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/my-comments' as any)}>
+                    <Text style={styles.additionalText}>내가 작성한 댓글</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/my-chats' as any)}>
+                    <Text style={styles.additionalText}>내 채팅방</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/available-groups' as any)}>
+                    <Text style={styles.additionalText}>그룹 채팅방 참여하기</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/group-create' as any)}>
+                    <Text style={styles.additionalText}>그룹 생성 요청</Text>
+                  </TouchableOpacity>
+
           
           {/* 관리자 메뉴 */}
               {isAdmin && (
@@ -423,11 +439,16 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/admin/contact-management')}>
           <Text style={styles.additionalText}>문의 관리</Text>
         </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/admin/group-approval' as any)}>
+          <Text style={styles.additionalText}>그룹 승인 관리</Text>
+        </TouchableOpacity>
                         <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/admin/report-management')}>
                   <Text style={styles.additionalText}>신고 관리</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/admin/chat-approval')}>
-                  <Text style={styles.additionalText}>채팅방 승인</Text>
+
+                <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/admin/board-approval' as any)}>
+                  <Text style={styles.additionalText}>게시판 승인</Text>
                 </TouchableOpacity>
       </>
     )}
@@ -471,14 +492,14 @@ export default function ProfileScreen() {
 
       {/* 하단 바 */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/pages/posts')}>
-          <Image source={require('../../assets/images/camsaw_post.png')} style={styles.bottomIconImg} />
+        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/post-list')}>
+          <Ionicons name="list" size={30} color="#000000" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/home')}>
-          <Image source={require('../../assets/images/camsaw_home.png')} style={styles.bottomIconImg} />
+          <Ionicons name="home" size={30} color="#000000" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.bottomIcon}>
-          <Image source={require('../../assets/images/camsaw_human.png')} style={styles.bottomIconImg} />
+          <Ionicons name="person" size={30} color="#000000" />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -486,7 +507,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#2D3A4A' },
+  container: { flex: 1, backgroundColor: '#ffffff' },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -500,19 +521,14 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
   backButton: {
     padding: 8,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  topLogo: { width: 40, height: 40, resizeMode: 'contain' },
+  topLogo: { width: 40, height: 40 },
   topTitle: {
     fontSize: 27,
     fontWeight: 'bold',
@@ -602,7 +618,7 @@ const styles = StyleSheet.create({
   },
   accountButton: {
     flex: 1,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -644,34 +660,19 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    backgroundColor: '#2D3A4A',
-    paddingHorizontal: 20,
-    paddingTop: 5,
-    justifyContent: 'space-between',
-  },
-  bottomIcon: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  bottomIconImg: { width: 45, height: 45, resizeMode: 'contain' },
-  chatSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginVertical: 12,
-  },
-  chatButton: {
-    flex: 1,
-    backgroundColor: '#2D3A4A',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
     alignItems: 'center',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    justifyContent: 'space-between',
   },
-  chatButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    fontFamily: 'GmarketSans',
+  bottomIcon: { 
+    flex: 1, 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    paddingVertical: 5,
   },
+
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -749,4 +750,4 @@ const styles = StyleSheet.create({
     fontFamily: 'GmarketSans',
     marginTop: 5,
   },
-}); 
+});

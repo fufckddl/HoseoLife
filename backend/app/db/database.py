@@ -1,6 +1,17 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from typing import Generator
+import logging
+import os
+
+# 환경 변수로 SQL 로그 제어
+SQL_ECHO = os.getenv('SQL_ECHO', 'false').lower() == 'true'
+
+# SQLAlchemy 로그 설정
+if not SQL_ECHO:
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
 
 #데이터베이스 연결 정보 (UTF-8 인코딩 설정)
 DATABASE_URL = "mysql+pymysql://camsaw:camsaw123@your-server-ip:3306/camsaw_db?charset=utf8mb4&collation=utf8mb4_unicode_ci"
@@ -11,7 +22,7 @@ CREATE_DB_URL = "mysql+pymysql://camsaw:camsaw123@your-server-ip:3306?charset=ut
 #데이터베이스 연결 (UTF-8 인코딩 설정)
 engine = create_engine(
     DATABASE_URL, 
-    echo=True, 
+    echo=SQL_ECHO,  # 환경 변수로 제어
     future=True,
     pool_pre_ping=True,  # 연결 상태 확인
     pool_recycle=3600,   # 1시간마다 연결 재생성

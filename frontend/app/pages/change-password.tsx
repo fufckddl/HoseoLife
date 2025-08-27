@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { userService } from '../services/userService';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -164,7 +165,7 @@ export default function ChangePasswordScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.title}>비밀번호 변경</Text>
         <View style={styles.placeholder} />
@@ -205,9 +206,11 @@ export default function ChangePasswordScreen() {
                   style={styles.eyeButton}
                   onPress={() => togglePasswordVisibility('current')}
                 >
-                  <Text style={styles.eyeIcon}>
-                    {showCurrentPassword ? '👁️' : '👁️‍🗨️'}
-                  </Text>
+                  <Ionicons 
+                    name={showCurrentPassword ? "eye" : "eye-off"} 
+                    size={20} 
+                    color="#000000" 
+                  />
                 </TouchableOpacity>
               </View>
             </View>
@@ -232,9 +235,11 @@ export default function ChangePasswordScreen() {
                   style={styles.eyeButton}
                   onPress={() => togglePasswordVisibility('new')}
                 >
-                  <Text style={styles.eyeIcon}>
-                    {showNewPassword ? '👁️' : '👁️‍🗨️'}
-                  </Text>
+                  <Ionicons 
+                    name={showNewPassword ? "eye" : "eye-off"} 
+                    size={20} 
+                    color="#000000" 
+                  />
                 </TouchableOpacity>
               </View>
             </View>
@@ -284,9 +289,11 @@ export default function ChangePasswordScreen() {
                   style={styles.eyeButton}
                   onPress={() => togglePasswordVisibility('confirm')}
                 >
-                  <Text style={styles.eyeIcon}>
-                    {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
-                  </Text>
+                  <Ionicons 
+                    name={showConfirmPassword ? "eye" : "eye-off"} 
+                    size={20} 
+                    color="#000000" 
+                  />
                 </TouchableOpacity>
               </View>
             </View>
@@ -323,28 +330,23 @@ export default function ChangePasswordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#FFFFFF',
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 20,
     paddingVertical: 15,
   },
   backButton: {
     padding: 8,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000',
     fontFamily: 'GmarketSans',
   },
   placeholder: {
@@ -406,9 +408,7 @@ const styles = StyleSheet.create({
   eyeButton: {
     padding: 12,
   },
-  eyeIcon: {
-    fontSize: 20,
-  },
+
   matchIndicator: {
     marginTop: 8,
     paddingHorizontal: 16,
@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
     fontFamily: 'GmarketSans',
   },
   submitButton: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
     marginHorizontal: 20,
     marginBottom: 30,
     paddingVertical: 16,

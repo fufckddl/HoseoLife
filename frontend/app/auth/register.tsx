@@ -4,7 +4,7 @@ import { View, Text, TextInput, StyleSheet, Alert, TouchableOpacity, Image, Moda
 import axios from 'axios';
 import { useRouter } from 'expo-router';
 
-const API_URL = 'http://your-server-ip:5000';
+const API_URL = 'https://camsaw.kro.kr';
 const SCHOOLS = [
   { label: '호서대학교 아산캠퍼스', value: 'hoseo_asan' },
   { label: '호서대학교 천안캠퍼스', value: 'hoseo_cheonan' },

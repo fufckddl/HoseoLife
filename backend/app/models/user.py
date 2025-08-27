@@ -17,6 +17,7 @@ class User(Base):
     fcm_token = Column(String(255), nullable=True)
     profile_image_url = Column(String(500), nullable=True)
     notifications_enabled = Column(Boolean, default=True)  # 알림 활성화 여부
+    is_active = Column(Boolean, default=True)  # 사용자 활성화 여부
     
     # 게시글 관계
     posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
@@ -27,19 +28,18 @@ class User(Base):
     # 좋아요 관계
     hearts = relationship("Heart", back_populates="user", cascade="all, delete-orphan")
     
+    # 스크랩 관계
+    scraps = relationship("Scrap", back_populates="user", cascade="all, delete-orphan")
+    
     # 조회 기록 관계
     view_logs = relationship("ViewLog", back_populates="user", cascade="all, delete-orphan")
     
     # 문의 관계 (양방향 관계, lazy loading 사용)
     contacts = relationship("Contact", foreign_keys="Contact.user_id", back_populates="user", cascade="all, delete-orphan", lazy="select")
     
-    # 채팅 관계 (문자열로 참조하여 순환 import 방지)
-    created_chats = relationship("ChatRoom", foreign_keys="ChatRoom.created_by", back_populates="creator")
-    chat_rooms = relationship("ChatRoom", secondary="chat_members", back_populates="members")
-    sent_messages = relationship("ChatMessage", back_populates="sender", cascade="all, delete-orphan")
+    # 알람 관계
+    alarms = relationship("Alarm", back_populates="user", cascade="all, delete-orphan")
     
-    # 채팅 관계
-    created_chats = relationship("ChatRoom", foreign_keys="ChatRoom.created_by", back_populates="creator")
-    chat_rooms = relationship("ChatRoom", secondary="chat_members", back_populates="members")
-    sent_messages = relationship("ChatMessage", back_populates="sender", cascade="all, delete-orphan")
-
+    # 채팅 관계 (새로운 Room 모델 사용으로 인해 기존 ChatRoom 관계 제거)
+    sent_messages = relationship("ChatMessage", foreign_keys="ChatMessage.sender_id")
+    

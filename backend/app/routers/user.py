@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Body, UploadFile, File, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.schemas.user import UserCreate, UserLogin, UserResponse, UserUpdate, PasswordChange, NotificationSettingsResponse, NotificationSettingsUpdate
@@ -8,12 +8,13 @@ from app.services.s3_service import s3_service
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
-from typing import Union
+from typing import Union, List, Optional
 import os
 from app.models.post import Post
 from app.models.comment import Comment
 from app.models.report import Report, UserPenalty
 from app.models.contact import Contact
+from sqlalchemy import or_
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "secret")
 ALGORITHM = "HS256"
@@ -23,6 +24,17 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+def decode_token(token: str):
+    """JWT 토큰을 디코드하여 페이로드를 반환합니다."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials"
+        )
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -122,9 +134,62 @@ def update_fcm_token(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    print(f"=== FCM 토큰 업데이트 요청 ===")
+    print(f"사용자: {current_user.nickname} (ID: {current_user.id})")
+    print(f"새 FCM 토큰: {fcm_token[:20]}...")
+    
     current_user.fcm_token = fcm_token
     db.commit()
+    
+    print(f"✅ FCM 토큰 업데이트 완료")
     return {"message": "FCM 토큰이 저장되었습니다."}
+
+@router.post("/test-notification")
+def test_notification(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """테스트 알림 전송 (디버깅용)"""
+    print(f"=== 테스트 알림 전송 ===")
+    print(f"사용자: {current_user.nickname} (ID: {current_user.id})")
+    print(f"FCM 토큰: {current_user.fcm_token[:20] if current_user.fcm_token else 'None'}...")
+    print(f"알림 설정: {current_user.notifications_enabled}")
+    
+    from app.services.fcm_service import send_fcm_to_user
+    
+    result = send_fcm_to_user(
+        db=db,
+        user_id=current_user.id,
+        title="테스트 알림",
+        body="이것은 테스트 알림입니다.",
+        data={"type": "test", "message": "테스트 메시지"}
+    )
+    
+    print(f"테스트 알림 전송 결과: {result}")
+    return {"message": "테스트 알림이 전송되었습니다.", "result": result}
+
+@router.post("/test-notification-all")
+def test_notification_all(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """모든 사용자에게 테스트 알림 전송 (관리자만)"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+    
+    print(f"=== 모든 사용자 테스트 알림 전송 ===")
+    print(f"요청자: {current_user.nickname} (ID: {current_user.id})")
+    
+    from app.services.fcm_service import send_fcm_to_all_users
+    
+    result = send_fcm_to_all_users(
+        db=db,
+        title="전체 테스트 알림",
+        body="모든 사용자에게 전송되는 테스트 알림입니다."
+    )
+    
+    print(f"전체 테스트 알림 전송 결과: {result}")
+    return {"message": "모든 사용자에게 테스트 알림이 전송되었습니다.", "result": result}
 
 @router.post("/change-password")
 def change_password(
@@ -308,3 +373,30 @@ def withdraw_user(
             status_code=500,
             detail="회원 탈퇴 처리 중 오류가 발생했습니다."
         ) 
+
+# 사용자 목록 조회 (채팅용)
+@router.get("/list", response_model=List[UserResponse])
+def get_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """사용자 목록을 조회합니다 (채팅용)."""
+    query = db.query(User)
+    
+    # 검색 필터
+    if search:
+        query = query.filter(
+            or_(
+                User.nickname.contains(search),
+                User.email.contains(search)
+            )
+        )
+    
+    # 자신 제외
+    query = query.filter(User.id != current_user.id)
+    
+    users = query.offset(skip).limit(limit).all()
+    return users 

@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { postService, PostListResponse } from '../services/postService';
 
@@ -22,15 +23,35 @@ interface RecentSearch {
 
 export default function SearchScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const [searchText, setSearchText] = useState('');
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
   const [searchResults, setSearchResults] = useState<PostListResponse[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [category, setCategory] = useState<string | undefined>(undefined);
 
   // 앱 시작 시 저장된 데이터 불러오기
   useEffect(() => {
     loadSavedData();
   }, []);
+
+  // URL 파라미터 처리
+  useEffect(() => {
+    // URL 파라미터에서 카테고리 정보 가져오기
+    if (params.category) {
+      setCategory(params.category as string);
+    }
+    
+    // URL 파라미터에서 검색어 가져오기
+    if (params.query) {
+      const query = decodeURIComponent(params.query as string);
+      setSearchText(query);
+      // 검색어가 있으면 자동으로 검색 실행 (카테고리 설정 후)
+      setTimeout(() => {
+        performSearch(query, params.category as string);
+      }, 100);
+    }
+  }, [params.category, params.query]);
 
   // 최근 검색어가 변경될 때마다 저장
   useEffect(() => {
@@ -83,12 +104,12 @@ export default function SearchScreen() {
     }
   };
 
-  const handleSearch = async () => {
-    if (searchText.trim()) {
+  const performSearch = async (query: string, searchCategory?: string) => {
+    if (query.trim()) {
       // 검색어를 최근 검색어에 추가
       const newSearch: RecentSearch = {
         id: Date.now(),
-        keyword: searchText.trim(),
+        keyword: query.trim(),
       };
       
       // 중복 검색어 제거하고 최신 검색어를 맨 앞에 추가
@@ -100,7 +121,7 @@ export default function SearchScreen() {
       // 실제 검색 실행
       try {
         setIsSearching(true);
-        const results = await postService.getPosts(0, 50, undefined, undefined, searchText.trim(), undefined, false);
+        const results = await postService.getPosts(0, 50, searchCategory || category, undefined, query.trim(), undefined, false);
         setSearchResults(results);
       } catch (error) {
         console.error('검색 오류:', error);
@@ -111,6 +132,10 @@ export default function SearchScreen() {
     }
   };
 
+  const handleSearch = async () => {
+    await performSearch(searchText, category);
+  };
+
   const removeRecentSearch = (id: number) => {
     setRecentSearches(recentSearches.filter(search => search.id !== id));
   };
@@ -118,16 +143,7 @@ export default function SearchScreen() {
   const selectRecentSearch = async (keyword: string) => {
     setSearchText(keyword);
     // 선택된 검색어로 검색 실행
-    try {
-      setIsSearching(true);
-      const results = await postService.getPosts(0, 50, undefined, undefined, keyword, undefined, false);
-      setSearchResults(results);
-    } catch (error) {
-      console.error('검색 오류:', error);
-      Alert.alert('검색 실패', '검색 중 오류가 발생했습니다.');
-    } finally {
-      setIsSearching(false);
-    }
+    await performSearch(keyword, category);
   };
 
   const renderSearchResult = (post: PostListResponse) => (
@@ -148,9 +164,18 @@ export default function SearchScreen() {
           {new Date(post.created_at).toLocaleDateString('ko-KR')}
         </Text>
         <View style={styles.searchResultStats}>
-          <Text style={styles.statText}>👁️ {post.view_count}</Text>
-          <Text style={styles.statText}>❤️ {post.heart_count}</Text>
-          <Text style={styles.statText}>💬 {post.comment_count}</Text>
+          <View style={styles.statItem}>
+            <Ionicons name="eye" size={12} color="#999999" />
+            <Text style={styles.statText}> {post.view_count}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="heart" size={12} color="#999999" />
+            <Text style={styles.statText}> {post.heart_count}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="chatbubble" size={12} color="#999999" />
+            <Text style={styles.statText}> {post.comment_count}</Text>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -161,7 +186,7 @@ export default function SearchScreen() {
       {/* 상단 헤더 */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
       </View>
 
@@ -230,6 +255,7 @@ export default function SearchScreen() {
           <View style={styles.searchResults}>
             <Text style={styles.resultsTitle}>
               "{searchText}" 검색 결과 ({searchResults.length}개)
+              {category && ` - ${category} 게시판`}
             </Text>
             {searchResults.map(renderSearchResult)}
           </View>
@@ -248,10 +274,10 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
   },
   header: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 16,
@@ -259,13 +285,8 @@ const styles = StyleSheet.create({
   backButton: {
     alignSelf: 'flex-start',
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
   searchContainer: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
@@ -391,7 +412,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   categoryBadge: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#000000',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -425,6 +446,10 @@ const styles = StyleSheet.create({
   searchResultStats: {
     flexDirection: 'row',
     gap: 12,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   statText: {
     fontSize: 12,

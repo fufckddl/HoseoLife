@@ -1,288 +1,85 @@
-import * as React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  TextInput, 
-  SafeAreaView,
   FlatList,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
   KeyboardAvoidingView,
   Platform,
   Alert,
   ActivityIndicator,
-  Image,
+  SafeAreaView,
+  Modal,
   Switch,
-  ScrollView
+  ScrollView,
+  Image,
 } from 'react-native';
-import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { chatService, ChatRoomDetailData, ChatMessageData } from '../services/chatService';
-import { useAuth } from '../contexts/AuthContext';
+import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { chatService } from '../services/chatService';
+import { FullScreenImageViewer } from '../components/FullScreenImageViewer';
+import { websocketService, ChatMessage } from '../services/websocketService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useChatStateStore } from '../stores/chatStateStore';
+import { userService } from '../services/userService';
+import { useGroupStore } from '../stores/groupStore';
+
+interface OptimisticMessage extends ChatMessage {
+  isOptimistic: boolean;
+  clientMsgId: string;
+  isSystemMessage?: boolean;
+}
 
 export default function ChatRoomScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
-  const { user, notificationsEnabled } = useAuth();
-  const roomId = parseInt(params.id as string);
   
-  const [chatRoom, setChatRoom] = useState<ChatRoomDetailData | null>(null);
-  const [messages, setMessages] = useState<ChatMessageData[]>([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [isAtBottom, setIsAtBottom] = useState(true); // 스크롤 위치 추적
-  const [hasNewMessages, setHasNewMessages] = useState(false); // 새 메시지 알림
-  const [showSideMenu, setShowSideMenu] = useState(false); // 사이드 메뉴 표시
-  const [roomNotificationsEnabled, setRoomNotificationsEnabled] = useState(true); // 채팅방 개별 알림 설정
+  // useChatStateStore 안전하게 사용
+  let chatStateStore: any = null;
+  try {
+    chatStateStore = useChatStateStore();
+    console.log('✅ useChatStateStore 로드 성공:', chatStateStore);
+  } catch (error) {
+    console.error('❌ useChatStateStore 로드 실패:', error);
+    // Store 로드 실패 시 기본값 설정
+    chatStateStore = {
+      setCurrentRoom: () => console.log('⚠️ Store not available'),
+      clearCurrentRoom: () => console.log('⚠️ Store not available'),
+      isInRoom: () => false
+    };
+  }
   
-  const flatListRef = useRef<FlatList>(null);
-  const messageInputRef = useRef<TextInput>(null);
-
-  const loadChatRoom = async () => {
-    try {
-      setLoading(true);
-      const roomData = await chatService.getChatRoomDetail(roomId);
-      setChatRoom(roomData);
-    } catch (error) {
-      console.error('채팅방 정보 로드 실패:', error);
-      Alert.alert('오류', '채팅방 정보를 불러오는데 실패했습니다.');
-      router.back();
-    } finally {
-      setLoading(false);
+  // 파라미터 안전하게 처리 - 컴포넌트 최상위에서 호출
+  let params: any = null;
+  let roomId: number | null = null;
+  let roomType: string | null = null;
+  let hasValidParams = false;
+  
+  try {
+    params = useLocalSearchParams();
+    console.log('🔍 채팅방 파라미터 로드:', params);
+    
+    if (params?.id && params?.type) {
+      roomId = parseInt(params.id as string);
+      roomType = params.type as string;
+      hasValidParams = true;
+    } else {
+      console.error('❌ 채팅방 파라미터가 없습니다:', params);
+      Alert.alert('오류', '채팅방 정보를 찾을 수 없습니다.', [
+        { text: '확인', onPress: () => router.back() }
+      ]);
     }
-  };
-
-  const loadMessages = async () => {
-    try {
-      const messageData = await chatService.getChatMessages(roomId);
-      const previousMessageCount = messages.length;
-      setMessages(messageData);
-      
-      // 새 메시지가 추가되었을 때
-      if (messageData.length > previousMessageCount) {
-        if (isAtBottom) {
-          // 사용자가 맨 아래에 있으면 자동 스크롤
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }, 100);
-        } else {
-          // 사용자가 맨 아래에 있지 않으면 새 메시지 알림 표시
-          setHasNewMessages(true);
-        }
-      }
-    } catch (error) {
-      console.error('메시지 로드 실패:', error);
-    }
-  };
-
-  const handleScroll = (event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const paddingToBottom = 20;
-    const isCloseToBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - paddingToBottom;
-    setIsAtBottom(isCloseToBottom);
-  };
-
-  const scrollToBottom = () => {
-    flatListRef.current?.scrollToEnd({ animated: true });
-    setHasNewMessages(false);
-  };
-
-  const toggleSideMenu = () => {
-    setShowSideMenu(!showSideMenu);
-  };
-
-  const handleRoomNotificationToggle = (value: boolean) => {
-    setRoomNotificationsEnabled(value);
-    // TODO: 서버에 개별 채팅방 알림 설정 저장
-    console.log(`채팅방 알림 설정 변경: ${value ? '켜짐' : '꺼짐'}`);
-  };
-
-  // 실제 알림 상태 계산 (전체 알림 && 개별 채팅방 알림)
-  const isNotificationActive = notificationsEnabled && roomNotificationsEnabled;
-
-  const refreshData = async () => {
-    setRefreshing(true);
-    await Promise.all([loadChatRoom(), loadMessages()]);
-    setRefreshing(false);
-  };
-
-  useFocusEffect(
-    React.useCallback(() => {
-      if (roomId) {
-        refreshData();
-      }
-    }, [roomId])
-  );
-
-  // 주기적으로 메시지 새로고침 (실시간 효과)
-  useEffect(() => {
-    if (chatRoom?.is_approved) {
-      const interval = setInterval(() => {
-        loadMessages();
-      }, 1000); // 1초마다 새로고침으로 실시간성 향상
-
-      return () => clearInterval(interval);
-    }
-  }, [chatRoom?.is_approved]);
-
-  const handleSendMessage = async () => {
-    if (!newMessage.trim()) {
-      return;
-    }
-
-    try {
-      setSending(true);
-      const sentMessage = await chatService.sendMessage(roomId, {
-        content: newMessage.trim()
-      });
-      
-      setNewMessage('');
-      setMessages(prev => [...prev, sentMessage]);
-      
-      // 메시지 전송 후 즉시 새로고침하여 최신 상태 유지
-      setTimeout(() => {
-        loadMessages();
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    } catch (error) {
-      console.error('메시지 전송 실패:', error);
-      Alert.alert('오류', '메시지 전송에 실패했습니다.');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  // UTC 시간을 한국 시간으로 변환하는 함수
-  const convertToKoreaTime = (dateString: string) => {
-    const date = new Date(dateString);
-    // UTC 시간에 9시간을 더해서 한국 시간으로 변환
-    const koreaTime = new Date(date.getTime() + (9 * 60 * 60 * 1000));
-    return koreaTime;
-  };
-
-  const formatMessageTime = (dateString: string) => {
-    const koreaDate = convertToKoreaTime(dateString);
-    const hours = String(koreaDate.getHours()).padStart(2, '0');
-    const minutes = String(koreaDate.getMinutes()).padStart(2, '0');
-    return `${hours}:${minutes}`;
-  };
-
-  // 날짜 포맷팅 함수 (예: "2024년 1월 15일")
-  const formatMessageDate = (dateString: string) => {
-    const koreaDate = convertToKoreaTime(dateString);
-    const year = koreaDate.getFullYear();
-    const month = koreaDate.getMonth() + 1;
-    const date = koreaDate.getDate();
-    return `${year}년 ${month}월 ${date}일`;
-  };
-
-  // 날짜 구분선 표시 여부 확인
-  const shouldShowDateDivider = (currentMessage: ChatMessageData, prevMessage: ChatMessageData | null) => {
-    if (!prevMessage) return true; // 첫 번째 메시지
-    
-    const currentDate = convertToKoreaTime(currentMessage.created_at);
-    const prevDate = convertToKoreaTime(prevMessage.created_at);
-    
-    return (
-      currentDate.getDate() !== prevDate.getDate() ||
-      currentDate.getMonth() !== prevDate.getMonth() ||
-      currentDate.getFullYear() !== prevDate.getFullYear()
-    );
-  };
-
-  // 시간 표시 여부 확인
-  const shouldShowTime = (currentMessage: ChatMessageData, nextMessage: ChatMessageData | null) => {
-    if (!nextMessage) return true; // 마지막 메시지
-    
-    // 다음 메시지가 같은 사용자이고 같은 시간대인 경우 시간 숨김
-    if (currentMessage.sender_id === nextMessage.sender_id) {
-      const currentTime = convertToKoreaTime(currentMessage.created_at);
-      const nextTime = convertToKoreaTime(nextMessage.created_at);
-      
-      // 1분 이내의 메시지는 같은 시간대로 간주
-      const timeDiff = Math.abs(nextTime.getTime() - currentTime.getTime());
-      const oneMinute = 60 * 1000; // 1분을 밀리초로
-      
-      return timeDiff > oneMinute;
-    }
-    
-    return true; // 다른 사용자의 메시지이거나 마지막 메시지
-  };
-
-  // 고유한 키 생성 함수
-  const generateUniqueKey = (item: ChatMessageData, index: number) => {
-    return `message-${item.id}-${index}`;
-  };
-
-  const renderMessage = ({ item, index }: { item: ChatMessageData; index: number }) => {
-    const isMyMessage = item.sender_id === user?.id;
-    const prevMessage = index > 0 ? messages[index - 1] : null;
-    const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
-    
-    // 날짜 구분선 표시 여부 확인
-    const showDateDivider = shouldShowDateDivider(item, prevMessage);
-    
-    // 시간 표시 여부 확인 (같은 사용자가 같은 시간에 연속 메시지인 경우 숨김)
-    const showTime = shouldShowTime(item, nextMessage);
-    
-    return (
-      <View>
-        {/* 날짜 구분선 */}
-        {showDateDivider && (
-          <View style={styles.dateDivider}>
-            <Text style={styles.dateDividerText}>
-              {formatMessageDate(item.created_at)}
-            </Text>
-          </View>
-        )}
-        
-        <View style={[
-          styles.messageContainer,
-          isMyMessage ? styles.myMessageContainer : styles.otherMessageContainer
-        ]}>
-          {!isMyMessage && (
-            <View style={styles.senderInfo}>
-              {item.sender_profile_image_url ? (
-                <Image 
-                  source={{ uri: item.sender_profile_image_url, cache: 'reload' }} 
-                  style={styles.senderProfileImage} 
-                />
-              ) : (
-                <Image 
-                  source={require('../../assets/images/camsaw_human.png')} 
-                  style={styles.senderProfileImage} 
-                />
-              )}
-              <Text style={styles.senderName}>{item.sender_nickname}</Text>
-            </View>
-          )}
-          <View style={[
-            styles.messageBubble,
-            isMyMessage ? styles.myMessageBubble : styles.otherMessageBubble
-          ]}>
-            <Text style={[
-              styles.messageText,
-              isMyMessage ? styles.myMessageText : styles.otherMessageText
-            ]}>
-              {item.content}
-            </Text>
-          </View>
-          {showTime && (
-            <Text style={[
-              styles.messageTime,
-              isMyMessage ? styles.myMessageTime : styles.otherMessageTime
-            ]}>
-              {formatMessageTime(item.created_at)}
-            </Text>
-          )}
-        </View>
-      </View>
-    );
-  };
-
-  if (loading) {
+  } catch (error) {
+    console.error('❌ 파라미터 로드 실패:', error);
+    Alert.alert('오류', '채팅방 정보를 불러오는데 실패했습니다.', [
+      { text: '확인', onPress: () => router.back() }
+    ]);
+  }
+  
+  // 파라미터가 유효하지 않으면 로딩 화면 표시
+  if (!hasValidParams || !roomId || !roomType) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -292,158 +89,699 @@ export default function ChatRoomScreen() {
       </SafeAreaView>
     );
   }
-
-  if (!chatRoom) {
+  
+  // 파라미터가 유효하지 않으면 로딩 화면 표시
+  if (!hasValidParams || !roomId || !roomType) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>채팅방을 찾을 수 없습니다.</Text>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.loadingText}>채팅방을 불러오는 중...</Text>
         </View>
       </SafeAreaView>
+    );
+  }
+  
+  const [messages, setMessages] = useState<OptimisticMessage[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [sendingImages, setSendingImages] = useState(false);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [imageViewerImages, setImageViewerImages] = useState<string[]>([]);
+  const [imageViewerIndex, setImageViewerIndex] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<Set<number>>(new Set());
+  
+  // 햄버거 메뉴 상태
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [participants, setParticipants] = useState<any[]>([]);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
+  
+  // groupStore 사용
+  const { refreshMyRooms } = useGroupStore();
+  
+  const flatListRef = useRef<FlatList>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    loadCurrentUser();
+    loadMessages();
+    setupWebSocket();
+    loadParticipants();
+    // 입장 시 방별 알림 설정 로드
+    chatService.getRoomNotifications(roomId)
+      .then(res => {
+        setNotificationsEnabled(!!res.notifications_enabled);
+        console.log('🔔 방 알림 초기 상태:', res.notifications_enabled);
+      })
+      .catch(err => {
+        // 404 등은 기본값 사용
+        console.warn('⚠️ 방 알림 상태 로드 실패. 기본값(true) 사용:', err?.status || err);
+        setNotificationsEnabled(true);
+      });
+    
+    // 채팅방 입장 상태 설정
+    chatStateStore.setCurrentRoom(roomId, roomType as 'dm' | 'group');
+    
+    return () => {
+      // 채팅방 나가기
+      websocketService.leaveRoom(roomId);
+      chatStateStore.clearCurrentRoom();
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [roomId, roomType]);
+
+  const loadCurrentUser = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('user_id');
+      if (userId) {
+        setCurrentUserId(parseInt(userId));
+      }
+    } catch (error) {
+      console.error('사용자 ID 로드 실패:', error);
+    }
+  };
+
+  const loadParticipants = async () => {
+    try {
+      setLoadingParticipants(true);
+      console.log('🔍 참여자 목록 로드 시작 - Room ID:', roomId);
+      
+      // 실제 참여자 목록 API 호출
+      const data = await chatService.getRoomParticipants(roomId);
+      
+      if (data && data.participants) {
+        console.log('✅ 참여자 목록 로드 성공 - 참여자 수:', data.total_count);
+        setParticipants(data.participants);
+        } else {
+        console.warn('⚠️ 참여자 목록이 비어있습니다');
+        setParticipants([]);
+      }
+    } catch (error) {
+      console.error('❌ 참여자 목록 로드 실패:', error);
+      // 에러 발생 시 빈 배열로 설정
+      setParticipants([]);
+    } finally {
+      setLoadingParticipants(false);
+    }
+  };
+
+  const toggleNotifications = () => {
+    const next = !notificationsEnabled;
+    setNotificationsEnabled(next);
+    console.log('🔔 알림 설정 변경:', next);
+    // 백엔드에 방별 알림 설정 저장
+    chatService.toggleRoomNotifications(roomId!, next).catch(err => {
+      console.error('❌ 알림 설정 저장 실패:', err);
+      // 실패 시 UI 롤백
+      setNotificationsEnabled(!next);
+    });
+  };
+
+  const leaveChatRoom = async () => {
+    Alert.alert(
+      '채팅방 나가기',
+      '정말로 이 채팅방을 나가시겠습니까?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '나가기',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('🚪 채팅방 나가기 실행 - Room ID:', roomId);
+              
+              // 백엔드 API 호출
+              await chatService.leaveRoom(roomId);
+              
+              // WebSocket 연결 해제
+              websocketService.leaveRoom(roomId);
+              
+              // 채팅방 상태 초기화
+              chatStateStore.clearCurrentRoom();
+              
+              // 채팅방 목록 새로고침
+              await refreshMyRooms();
+              
+              // 채팅방 목록으로 이동
+              router.push('/pages/my-chats');
+              
+              console.log('✅ 채팅방 나가기 완료');
+            } catch (error) {
+              console.error('❌ 채팅방 나가기 실패:', error);
+              Alert.alert('오류', '채팅방 나가기에 실패했습니다.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const loadMessages = async () => {
+    try {
+      setLoading(true);
+      console.log('🔍 메시지 로드 시작 - Room ID:', roomId, 'Type:', roomType);
+      
+      let chatMessages;
+      
+      // 그룹 채팅방인지 1:1 채팅방인지 구분하여 API 호출
+      if (roomType === 'group') {
+        console.log('👥 그룹 채팅방 메시지 조회');
+        const groupData = await chatService.getGroupChatMessages(roomId);
+        chatMessages = groupData.messages || [];
+      } else {
+        console.log('💬 1:1 채팅방 메시지 조회 (새로운 Room 모델)');
+        const groupData = await chatService.getGroupChatMessages(roomId);
+        chatMessages = groupData.messages || [];
+      }
+      
+      // 낙관적 메시지와 실제 메시지 구분
+      const optimisticMessages = messages.filter(msg => msg.isOptimistic);
+      const realMessages = chatMessages.map((msg: any) => ({
+        ...msg,
+        isOptimistic: false,
+        clientMsgId: msg.client_msg_id || '',
+        // sender_id가 null인 경우 시스템 메시지로 처리 (카카오톡 스타일)
+        isSystemMessage: msg.sender_id === null,
+      }));
+      
+      console.log('✅ 메시지 로드 완료 - 메시지 수:', realMessages.length);
+      setMessages([...optimisticMessages, ...realMessages]);
+    } catch (error) {
+      console.error('❌ 메시지 로드 실패:', error);
+      Alert.alert('오류', '메시지를 불러오는데 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setupWebSocket = () => {
+    // WebSocket 연결 및 채팅방 참여
+    websocketService.connect().then(() => {
+      websocketService.joinRoom(roomId);
+    });
+
+    // 새 메시지 수신
+    websocketService.onMessage((message) => {
+      try {
+        // room_id를 안전하게 숫자로 변환하여 비교
+        const messageRoomId = typeof message.room_id === 'string' ? parseInt(message.room_id) : message.room_id;
+        if (messageRoomId === roomId) {
+          console.log('📨 WebSocket 메시지 수신:', message);
+          
+          // 시스템 메시지 처리
+          if ((message as any).type === 'system_message') {
+            setMessages(prev => [...prev, {
+              id: -1, // 시스템 메시지는 임시 ID
+              room_id: roomId,
+              sender_id: null, // 시스템 메시지는 sender_id가 없음
+              content: message.content,
+              sent_at: message.sent_at || new Date().toISOString(),
+              is_deleted: false,
+              isOptimistic: false,
+              clientMsgId: `system_${Date.now()}`,
+              isSystemMessage: true, // 시스템 메시지 플래그
+            }]);
+          } else {
+            // 일반 메시지 처리
+            setMessages(prev => {
+              // 낙관적 메시지가 실제 메시지로 대체되었는지 확인
+              const filteredMessages = prev.filter(msg => 
+                !msg.isOptimistic || msg.clientMsgId !== message.client_msg_id
+              );
+              
+              return [...filteredMessages, {
+                ...message,
+                isOptimistic: false,
+                clientMsgId: message.client_msg_id || '',
+              }];
+            });
+          }
+          
+          // 자동 스크롤
+      setTimeout(() => {
+            if (flatListRef.current) {
+              flatListRef.current.scrollToEnd({ animated: true });
+            }
+      }, 100);
+        }
+    } catch (error) {
+        console.error('❌ WebSocket 메시지 처리 실패:', error);
+      }
+    });
+
+    // 타이핑 상태 수신
+    websocketService.onTyping((typingRoomId, userId, isTyping) => {
+      try {
+        // room_id를 안전하게 숫자로 변환하여 비교
+        const typingRoomIdNum = typeof typingRoomId === 'string' ? parseInt(typingRoomId) : typingRoomId;
+        if (typingRoomIdNum === roomId) {
+          setTypingUsers(prev => {
+            const newSet = new Set(prev);
+            if (isTyping) {
+              newSet.add(userId);
+            } else {
+              newSet.delete(userId);
+            }
+            return newSet;
+          });
+        }
+      } catch (error) {
+        console.error('❌ 타이핑 상태 처리 실패:', error);
+      }
+    });
+
+    // 읽음 확인 수신
+    websocketService.onReadReceipt((roomId, userId, messageId) => {
+      // 읽음 확인 처리 (UI 업데이트)
+      console.log(`사용자 ${userId}가 메시지 ${messageId}를 읽었습니다`);
+    });
+  };
+
+  const sendMessage = async () => {
+    if (!inputText.trim() || sending) return;
+
+    const clientMsgId = `msg_${Date.now()}_${Math.random()}`;
+    const optimisticMessage: OptimisticMessage = {
+      id: -1, // 임시 ID
+      room_id: roomId,
+      sender_id: currentUserId!,
+      content: inputText.trim(),
+      sent_at: new Date().toISOString(),
+      is_deleted: false,
+      isOptimistic: true,
+      clientMsgId,
+    };
+
+    // 낙관적 업데이트
+    setMessages(prev => [...prev, optimisticMessage]);
+    setInputText('');
+    setSending(true);
+
+    // 자동 스크롤
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+
+    try {
+      // 서버에 메시지 전송
+      let sentMessage;
+      
+      if (roomType === 'group') {
+        console.log('👥 그룹 채팅방 메시지 전송');
+        sentMessage = await chatService.sendGroupMessage(roomId, inputText.trim());
+      } else {
+        console.log('💬 1:1 채팅방 메시지 전송 (새로운 Room 모델)');
+        sentMessage = await chatService.sendGroupMessage(roomId, inputText.trim());
+      }
+      
+      // 낙관적 메시지를 실제 메시지로 교체
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.clientMsgId === clientMsgId 
+            ? { ...sentMessage, isOptimistic: false, clientMsgId }
+            : msg
+        )
+      );
+    } catch (error) {
+      console.error('❌ 메시지 전송 실패:', error);
+      
+      // 실패 시 낙관적 메시지 제거
+      setMessages(prev => prev.filter(msg => msg.clientMsgId !== clientMsgId));
+      Alert.alert('오류', '메시지 전송에 실패했습니다.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleTyping = (text: string) => {
+    setInputText(text);
+    
+    // 타이핑 상태 전송
+    if (!isTyping) {
+      setIsTyping(true);
+      websocketService.sendTyping(roomId, true);
+    }
+    
+    // 타이핑 타이머 리셋
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+      websocketService.sendTyping(roomId, false);
+    }, 3000);
+  };
+
+  const renderMessage = ({ item }: { item: OptimisticMessage }) => {
+    // 시스템 메시지 렌더링
+    if (item.isSystemMessage) {
+    return (
+        <View style={styles.systemMessageContainer}>
+          <Text style={styles.systemMessageText}>{item.content}</Text>
+          </View>
+      );
+    }
+        
+    const isOwnMessage = currentUserId === item.sender_id;
+    
+    // 이미지 메시지
+    const images: string[] | undefined = (item as any).image_urls || (item as any).imageUrls;
+    if (images && images.length > 0) {
+    return (
+        <View style={[styles.messageContainer, isOwnMessage ? styles.ownMessage : styles.otherMessage]}>
+          {/* 이미지 메시지는 말풍선 배경 없이 독립 컨테이너에 렌더 */}
+          <View style={styles.imageGridContainer}>{renderImageGrid(images)}</View>
+          {item.sent_at ? (
+            <Text style={styles.messageTime}>
+              {new Date(item.sent_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          ) : null}
+          </View>
+      );
+    }
+        
+    return (
+        <View style={[
+          styles.messageContainer,
+        isOwnMessage ? styles.ownMessage : styles.otherMessage
+      ]}>
+          <View style={[
+            styles.messageBubble,
+          isOwnMessage ? styles.ownBubble : styles.otherBubble,
+          item.isOptimistic && styles.optimisticMessage
+          ]}>
+            <Text style={[
+              styles.messageText,
+            isOwnMessage ? styles.ownMessageText : styles.otherMessageText
+            ]}>
+              {item.content}
+            </Text>
+          {item.isOptimistic && (
+            <ActivityIndicator size="small" color="#007AFF" style={styles.sendingIndicator} />
+          )}
+          </View>
+        <Text style={styles.messageTime}>
+          {new Date(item.sent_at).toLocaleTimeString('ko-KR', {
+            hour: '2-digit',
+            minute: '2-digit'
+          })}
+            </Text>
+        </View>
+    );
+  };
+
+  const renderImageGrid = (urls: string[]) => {
+    const GRID_WIDTH = 240;
+    // 이미지 개수에 따라 컬럼 동적 결정 (<=4: 2열, 5~8: 3열, 9+: 4열)
+    const columns = urls.length >= 9 ? 4 : urls.length >= 5 ? 3 : 2;
+
+    // 2열 + 홀수(>=3)에서는 카카오톡 유사 첫 행 패턴 적용
+    if (columns === 2 && urls.length >= 3 && urls.length % 2 === 1) {
+      const first = urls[0];
+      const rest = urls.slice(1);
+      const rows: string[][] = [];
+      for (let i = 0; i < rest.length; i += 2) rows.push(rest.slice(i, i + 2));
+      const half = GRID_WIDTH / 2;
+      return (
+        <View style={styles.imageGrid}>
+          <View style={styles.imageRow}>
+            <TouchableOpacity activeOpacity={0.9} onPress={() => { setImageViewerImages(urls); setImageViewerIndex(0); setImageViewerVisible(true); }}>
+              <Image source={{ uri: first }} style={{ width: half, height: GRID_WIDTH, borderRadius: 12 }} />
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'column', height: GRID_WIDTH }}>
+              {rest[0] && (
+                <TouchableOpacity activeOpacity={0.9} onPress={() => { setImageViewerImages(urls); setImageViewerIndex(1); setImageViewerVisible(true); }}>
+                  <Image source={{ uri: rest[0] }} style={{ width: half, height: half, borderTopRightRadius: 12 }} />
+                </TouchableOpacity>
+              )}
+              {rest[1] && (
+                <TouchableOpacity activeOpacity={0.9} onPress={() => { setImageViewerImages(urls); setImageViewerIndex(2); setImageViewerVisible(true); }}>
+                  <Image source={{ uri: rest[1] }} style={{ width: half, height: half, borderBottomRightRadius: 12 }} />
+                </TouchableOpacity>
+          )}
+        </View>
+          </View>
+          {rows.slice(1).map((row, idx) => {
+            const cellW = GRID_WIDTH / (row.length === 0 ? columns : row.length);
+            return (
+              <View key={`r${idx}`} style={styles.imageRow}>
+                {row.map((url, j) => (
+                  <TouchableOpacity key={`r${idx}-${j}`} activeOpacity={0.9} onPress={() => { setImageViewerImages(urls); setImageViewerIndex(1 + idx*2 + j); setImageViewerVisible(true); }}>
+                    <Image source={{ uri: url }} style={{ width: cellW, height: cellW }} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            );
+          })}
+        </View>
+      );
+    }
+
+    // 일반 그리드: 2/3/4열. 마지막 행이 비면 남은 칸만큼 균등 분배
+    const rows: string[][] = [];
+    for (let i = 0; i < urls.length; i += columns) rows.push(urls.slice(i, i + columns));
+    return (
+      <View style={styles.imageGrid}>
+        {rows.map((row, idx) => {
+          const cellW = GRID_WIDTH / row.length; // 마지막 행이 비면 남은 칸만큼 넓게
+          return (
+            <View key={idx} style={styles.imageRow}>
+              {row.map((url, j) => (
+                <TouchableOpacity key={`${idx}-${j}`} activeOpacity={0.9} onPress={() => { setImageViewerImages(urls); setImageViewerIndex(idx*columns + j); setImageViewerVisible(true); }}>
+                  <Image source={{ uri: url }} style={{ width: cellW, height: cellW }} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const renderTypingIndicator = () => {
+    if (typingUsers.size === 0) return null;
+    
+    return (
+      <View style={styles.typingContainer}>
+        <Text style={styles.typingText}>
+          {Array.from(typingUsers).length}명이 입력 중...
+        </Text>
+        </View>
+    );
+  };
+
+  if (loading) {
+    return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>메시지를 불러오는 중...</Text>
+        </View>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 상단 헤더 */}
+      {/* 상단 탑바 */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+        <TouchableOpacity 
+          style={styles.backButton} 
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={24} color="#007AFF" />
         </TouchableOpacity>
-        <View style={styles.headerInfo}>
-          <Text style={styles.roomTitle}>{chatRoom.title}</Text>
-          <Text style={styles.memberCount}>멤버 {chatRoom.members.length}명</Text>
-        </View>
-        <TouchableOpacity style={styles.menuButton} onPress={toggleSideMenu}>
-          <Text style={styles.menuIcon}>☰</Text>
+        <Text style={styles.headerTitle}>
+          {roomType === 'group' ? '그룹 채팅' : '1:1 채팅'}
+        </Text>
+        <TouchableOpacity 
+          style={styles.menuButton} 
+          onPress={() => setIsMenuOpen(true)}
+        >
+          <Ionicons name="menu" size={24} color="#007AFF" />
         </TouchableOpacity>
       </View>
 
-      {/* 승인되지 않은 채팅방 안내 */}
-      {!chatRoom.is_approved && (
-        <View style={styles.approvalNotice}>
-          <Text style={styles.approvalNoticeText}>
-            ⏳ 관리자 승인 대기 중입니다. 승인 후 채팅이 가능합니다.
-          </Text>
-        </View>
-      )}
-
-      {/* 메시지 목록 */}
+      <KeyboardAvoidingView 
+        style={styles.chatContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
       <FlatList
         ref={flatListRef}
-        style={styles.messageList}
         data={messages}
         renderItem={renderMessage}
-        keyExtractor={generateUniqueKey}
-        onRefresh={refreshData}
-        refreshing={refreshing}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.messageListContent}
-        onScroll={handleScroll}
-      />
-
-      {/* 새 메시지 알림 버튼 */}
-      {hasNewMessages && (
-        <TouchableOpacity style={styles.newMessageButton} onPress={scrollToBottom}>
-          <Text style={styles.newMessageButtonText}>새 메시지 보기</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* 메시지 입력 영역 */}
-      {chatRoom.is_approved && (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.inputContainer}
-        >
+          keyExtractor={(item) => {
+            if (item.clientMsgId) {
+              return item.clientMsgId;
+            }
+            if (item.id !== undefined && item.id !== null) {
+              return item.id.toString();
+            }
+            // fallback: 타임스탬프 기반 고유 키 생성
+            return `msg_${Date.now()}_${Math.random()}`;
+          }}
+          style={styles.messageList}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          ListFooterComponent={renderTypingIndicator}
+        />
+        
+        <View style={styles.inputContainer}>
+          {/* 이미지 선택 버튼 */}
+          <TouchableOpacity
+            style={styles.imageButton}
+            onPress={async () => {
+              try {
+                const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (perm.status !== 'granted') {
+                  Alert.alert('권한 필요', '사진 라이브러리 접근 권한이 필요합니다.');
+                  return;
+                }
+                const result = await ImagePicker.launchImageLibraryAsync({
+                  allowsMultipleSelection: true,
+                  selectionLimit: 10,
+                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                  quality: 0.5,
+                  base64: true,
+                });
+                if ((result as any).canceled) return;
+                const assets = (result as any).assets || [];
+                if (assets.length === 0) return;
+                setSendingImages(true);
+                try {
+                  await chatService.sendImages(roomId, assets.map((a: any) => ({ uri: a.uri, type: a.mimeType, base64: a.base64 })));
+                } catch (err: any) {
+                  // 권한(403)이나 정책 위반 시 사용자 메시지 구체화
+                  if (err && err.__http && err.status === 403) {
+                    Alert.alert('전송 실패', '이미지 전송 권한이 없습니다. 방 참여 상태를 확인해주세요.');
+                  } else if (err && err.__http) {
+                    Alert.alert('전송 실패', `이미지 전송 오류 (${err.status}). 잠시 후 다시 시도해주세요.`);
+                  } else {
+                    throw err;
+                  }
+                }
+                // 성공 시 메시지 목록 새로고침
+                await loadMessages();
+              } catch (e) {
+                console.error('이미지 선택/전송 실패:', e);
+                Alert.alert('오류', '이미지 전송에 실패했습니다.');
+              } finally {
+                setSendingImages(false);
+              }
+            }}
+          >
+            <Ionicons name="image" size={22} color="#007AFF" />
+          </TouchableOpacity>
           <TextInput
-            ref={messageInputRef}
-            style={styles.messageInput}
+            style={styles.textInput}
+            value={inputText}
+            onChangeText={handleTyping}
             placeholder="메시지를 입력하세요..."
-            value={newMessage}
-            onChangeText={setNewMessage}
             multiline
             maxLength={1000}
-            placeholderTextColor="#999999"
           />
           <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (!newMessage.trim() || sending) && styles.sendButtonDisabled
-            ]}
-            onPress={handleSendMessage}
-            disabled={!newMessage.trim() || sending}
+            style={[styles.sendButton, (!inputText.trim() || sending) && styles.sendButtonDisabled]}
+            onPress={sendMessage}
+            disabled={!inputText.trim() || sending}
           >
-            {sending ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
               <Text style={styles.sendButtonText}>전송</Text>
-            )}
           </TouchableOpacity>
+        </View>
         </KeyboardAvoidingView>
-      )}
 
-      {/* 사이드 메뉴 */}
-      {showSideMenu && (
-        <View style={styles.sideMenuOverlay}>
+      {/* 햄버거 메뉴 모달 */}
+      <Modal
+        visible={isMenuOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsMenuOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.menuContainer}>
+            {/* 헤더 */}
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle}>채팅방 설정</Text>
           <TouchableOpacity 
-            style={styles.sideMenuBackdrop} 
-            onPress={toggleSideMenu}
-            activeOpacity={1}
-          />
-          <SafeAreaView style={styles.sideMenu}>
-            <View style={styles.sideMenuHeader}>
-              <Text style={styles.sideMenuTitle}>채팅방 정보</Text>
-              <TouchableOpacity onPress={toggleSideMenu}>
-                <Text style={styles.sideMenuClose}>✕</Text>
+                style={styles.closeButton}
+                onPress={() => setIsMenuOpen(false)}
+              >
+                <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
             
-            {/* 채팅방 제목 */}
-            <View style={styles.sideMenuSection}>
-              <Text style={styles.sideMenuSectionTitle}>채팅방 제목</Text>
-              <Text style={styles.sideMenuRoomTitle}>{chatRoom.title}</Text>
-            </View>
-
-            {/* 알림 설정 */}
-            <View style={styles.sideMenuSection}>
-              <Text style={styles.sideMenuSectionTitle}>알림 설정</Text>
-              <View style={styles.sideMenuNotificationRow}>
-                <Text style={styles.sideMenuNotificationText}>
-                  {isNotificationActive ? '알림 켜짐' : '알림 꺼짐'}
+            <ScrollView style={styles.menuContent}>
+              {/* 참여자 목록 */}
+              <View style={styles.menuSection}>
+                <Text style={styles.sectionTitle}>
+                  참여자 ({participants.length}명)
                 </Text>
-                <Switch
-                  value={roomNotificationsEnabled}
-                  onValueChange={handleRoomNotificationToggle}
-                  trackColor={{ false: '#E0E0E0', true: '#007AFF' }}
-                  thumbColor={roomNotificationsEnabled ? '#ffffff' : '#f4f3f4'}
-                />
-              </View>
-              {!notificationsEnabled && (
-                <Text style={styles.sideMenuNotificationNote}>
-                  * 전체 알림이 꺼져있어 개별 설정이 적용되지 않습니다
+                {loadingParticipants ? (
+                  <ActivityIndicator size="small" color="#007AFF" />
+                ) : (
+                  participants.map((participant) => (
+                    <View key={participant.id} style={styles.participantItem}>
+                      <View style={styles.participantAvatar}>
+                        {participant.profile_image_url ? (
+                          <Image
+                            source={{ uri: participant.profile_image_url }}
+                            style={styles.profileImage}
+                            onError={() => {
+                              // 이미지 로드 실패 시 아바타로 대체
+                              console.log('프로필 이미지 로드 실패:', participant.nickname);
+                            }}
+                          />
+                        ) : (
+                          <View style={styles.avatarContainer}>
+                            <Text style={styles.avatarText}>
+                              {participant.nickname.charAt(0).toUpperCase()}
                 </Text>
+                          </View>
               )}
             </View>
-
-            {/* 참여자 목록 */}
-            <View style={styles.sideMenuSection}>
-              <Text style={styles.sideMenuSectionTitle}>참여자 ({chatRoom.members.length}명)</Text>
-              <ScrollView style={styles.membersList} showsVerticalScrollIndicator={false}>
-                {chatRoom.members.map((member) => (
-                  <View key={member.id} style={styles.memberItem}>
-                    <View style={styles.memberInfo}>
-                      <Text style={styles.memberName}>{member.nickname}</Text>
-                      <Text style={styles.memberJoined}>
-                        {new Date(member.joined_at).toLocaleDateString('ko-KR')} 참여
-                      </Text>
+                      <View style={styles.participantInfo}>
+                        <Text style={styles.participantName}>{participant.nickname}</Text>
+                        {participant.is_admin && (
+                          <Text style={styles.adminBadge}>관리자</Text>
+                        )}
                     </View>
                   </View>
-                ))}
-              </ScrollView>
+                  ))
+                )}
             </View>
-          </SafeAreaView>
+
+              {/* 알림 설정 */}
+              <View style={styles.menuSection}>
+                <Text style={styles.sectionTitle}>알림 설정</Text>
+                <View style={styles.settingItem}>
+                  <Text style={styles.settingLabel}>채팅 알림</Text>
+                  <Switch
+                    value={notificationsEnabled}
+                    onValueChange={toggleNotifications}
+                    trackColor={{ false: '#767577', true: '#81b0ff' }}
+                    thumbColor={notificationsEnabled ? '#007AFF' : '#f4f3f4'}
+                  />
+                </View>
+              </View>
+
+              {/* 채팅방 나가기 */}
+              <View style={styles.menuSection}>
+              <TouchableOpacity 
+                style={styles.leaveButton} 
+                  onPress={leaveChatRoom}
+              >
+                  <Ionicons name="exit-outline" size={20} color="#FF3B30" />
+                <Text style={styles.leaveButtonText}>채팅방 나가기</Text>
+              </TouchableOpacity>
+            </View>
+            </ScrollView>
         </View>
-      )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -451,7 +789,36 @@ export default function ChatRoomScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f5f5f5',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  backButton: {
+    padding: 8,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 40,
+  },
+  menuButton: {
+    padding: 8,
+  },
+  chatContainer: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -459,319 +826,267 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    fontSize: 16,
-    color: '#666666',
     marginTop: 10,
-    fontFamily: 'GmarketSans',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
     fontSize: 16,
-    color: '#666666',
-    fontFamily: 'GmarketSans',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  backButton: {
-    marginRight: 12,
-  },
-  backIcon: {
-    fontSize: 24,
-    color: '#333',
-    fontWeight: '600',
-  },
-  headerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  roomTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    fontFamily: 'GmarketSans',
-  },
-  memberCount: {
-    fontSize: 12,
     color: '#666',
-    marginLeft: 8,
-    fontFamily: 'GmarketSans',
-  },
-  placeholder: {
-    width: 40,
-  },
-  menuButton: {
-    padding: 8,
-  },
-  menuIcon: {
-    fontSize: 24,
-    color: '#333',
-  },
-  approvalNotice: {
-    backgroundColor: '#FFF3CD',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#FFEAA7',
-  },
-  approvalNoticeText: {
-    fontSize: 14,
-    color: '#856404',
-    textAlign: 'center',
-    fontFamily: 'GmarketSans',
   },
   messageList: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  messageListContent: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
   },
   messageContainer: {
-    marginBottom: 12,
+    marginVertical: 4,
   },
-  myMessageContainer: {
+  ownMessage: {
     alignItems: 'flex-end',
   },
-  otherMessageContainer: {
+  otherMessage: {
     alignItems: 'flex-start',
-  },
-  senderInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  senderProfileImage: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginRight: 8,
-  },
-  senderName: {
-    fontSize: 12,
-    color: '#666666',
-    fontFamily: 'GmarketSans',
   },
   messageBubble: {
     maxWidth: '80%',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  myMessageBubble: {
+  ownBubble: {
     backgroundColor: '#007AFF',
-    borderBottomRightRadius: 4,
   },
-  otherMessageBubble: {
-    backgroundColor: '#F0F0F0',
-    borderBottomLeftRadius: 4,
+  otherBubble: {
+    backgroundColor: '#e0e0e0',
+  },
+  optimisticMessage: {
+    opacity: 0.7,
   },
   messageText: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontFamily: 'GmarketSans',
+    fontSize: 16,
+    flex: 1,
   },
-  myMessageText: {
-    color: '#FFFFFF',
+  ownMessageText: {
+    color: 'white',
   },
   otherMessageText: {
-    color: '#333333',
+    color: 'black',
   },
   messageTime: {
-    fontSize: 10,
-    color: '#999',
-    marginTop: 4,
-    fontFamily: 'GmarketSans',
-  },
-  myMessageTime: {
-    alignSelf: 'flex-end',
-  },
-  otherMessageTime: {
-    alignSelf: 'flex-start',
-  },
-  dateDivider: {
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  dateDividerText: {
     fontSize: 12,
     color: '#999',
-    backgroundColor: '#F0F0F0',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    fontFamily: 'GmarketSans',
+    marginTop: 4,
+    marginHorizontal: 8,
+  },
+  sendingIndicator: {
+    marginLeft: 8,
+  },
+  typingContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  typingText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
   },
   inputContainer: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    padding: 16,
+    backgroundColor: 'white',
     borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
+    borderTopColor: '#e0e0e0',
   },
-  messageInput: {
+  textInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: '#e0e0e0',
     borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
     maxHeight: 100,
-    fontFamily: 'GmarketSans',
+  },
+  imageButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  imageGridContainer: {
+    maxWidth: '80%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  imageGrid: {
+    width: 240,
+  },
+  imageRow: {
+    flexDirection: 'row',
+  },
+  imageCell: {
+    width: 120,
+    height: 120,
+  },
+  imageCellFull: {
+    width: 240,
+    height: 240,
+    borderRadius: 12,
   },
   sendButton: {
     backgroundColor: '#007AFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
     borderRadius: 20,
-    marginLeft: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 60,
   },
   sendButtonDisabled: {
-    backgroundColor: '#CCCCCC',
+    backgroundColor: '#ccc',
   },
   sendButtonText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontFamily: 'GmarketSans',
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
-  newMessageButton: {
-    position: 'absolute',
-    bottom: 80,
-    right: 16,
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  newMessageButtonText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontFamily: 'GmarketSans',
-  },
-  sideMenuOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    zIndex: 10,
-  },
-  sideMenuBackdrop: {
+  // 햄버거 메뉴 스타일
+  modalOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
   },
-  sideMenu: {
-    position: 'absolute',
-    right: 0,
-    width: '70%',
-    height: '100%',
-    backgroundColor: '#FFFFFF',
-    borderLeftWidth: 1,
-    borderLeftColor: '#E0E0E0',
-    zIndex: 11,
+  menuContainer: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
   },
-  sideMenuHeader: {
+  menuHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: '#e0e0e0',
   },
-  sideMenuTitle: {
+  menuTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    fontFamily: 'GmarketSans',
-  },
-  sideMenuClose: {
-    fontSize: 24,
-    color: '#333',
-  },
-  sideMenuSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  sideMenuSectionTitle: {
-    fontSize: 14,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 8,
-    fontFamily: 'GmarketSans',
   },
-  sideMenuRoomTitle: {
+  closeButton: {
+    padding: 4,
+  },
+  menuContent: {
+    padding: 20,
+  },
+  menuSection: {
+    marginBottom: 30,
+  },
+  sectionTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    fontFamily: 'GmarketSans',
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 15,
   },
-  sideMenuNotificationRow: {
+  participantItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  participantAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  profileImageContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E3F2FD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#007AFF',
+  },
+  profileImageText: {
+    fontSize: 16,
+    color: '#007AFF',
+  },
+  avatarContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  avatarText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  participantName: {
+    fontSize: 16,
+    color: '#333',
+  },
+  participantInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  adminBadge: {
+    fontSize: 12,
+    color: '#007AFF',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+    fontWeight: '600',
+  },
+  settingItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: 10,
   },
-  sideMenuNotificationText: {
-    fontSize: 14,
+  settingLabel: {
+    fontSize: 16,
     color: '#333',
-    fontFamily: 'GmarketSans',
   },
-  sideMenuNotificationNote: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
-    fontFamily: 'GmarketSans',
-  },
-  membersList: {
-    maxHeight: 200,
-  },
-  memberItem: {
+  leaveButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    justifyContent: 'center',
+    backgroundColor: '#FF3B30',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
   },
-  memberInfo: {
-    flex: 1,
+  leaveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
-  memberName: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    fontFamily: 'GmarketSans',
+  systemMessageContainer: {
+    alignItems: 'center',
+    marginVertical: 8,
+    paddingHorizontal: 16,
   },
-  memberJoined: {
+  systemMessageText: {
     fontSize: 12,
-    color: '#999',
-    fontFamily: 'GmarketSans',
+    color: '#666',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    fontStyle: 'italic',
   },
 }); 

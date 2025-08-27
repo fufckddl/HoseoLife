@@ -1,90 +1,61 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
-class ChatRoomCreate(BaseModel):
-    title: str
-    purpose: str
+# 채팅방 스키마
+class ChatRoomBase(BaseModel):
+    name: Optional[str] = None
+    type: str = "dm"  # "dm" 또는 "group"
+    members: List[int] = []
 
-class ChatRoomResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class ChatRoomCreate(ChatRoomBase):
+    pass
+
+class ChatRoomResponse(ChatRoomBase):
     id: int
-    title: str
-    purpose: str
     created_by: int
     created_at: datetime
     is_active: bool
-    is_approved: Optional[bool] = None
-    approved_by: Optional[int] = None
-    approved_at: Optional[datetime] = None
-    creator_nickname: str
-    creator_profile_image_url: Optional[str] = None
-    member_count: int
-    last_message: Optional[str] = None
-    last_message_time: Optional[datetime] = None
+    last_message: Optional[dict] = None
+    other_user: Optional[dict] = None
+    
+    class Config:
+        from_attributes = True
 
-class ChatRoomDetailResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    title: str
-    purpose: str
-    created_by: int
-    created_at: datetime
-    is_active: bool
-    is_approved: Optional[bool] = None
-    approved_by: Optional[int] = None
-    approved_at: Optional[datetime] = None
-    creator_nickname: str
-    creator_profile_image_url: Optional[str] = None
-    members: List[dict]
+# 메시지 스키마
+class ChatMessageBase(BaseModel):
+    text: str
+    client_msg_id: Optional[str] = Field(None, alias="clientMsgId")
 
-class ChatMessageCreate(BaseModel):
-    content: str
+class ChatMessageCreate(ChatMessageBase):
+    # room_id는 URL 경로에서 가져오므로 요청 본문에서는 제외
+    pass
 
 class ChatMessageResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     id: int
-    chat_id: int
+    room_id: int
+    content: str  # DB 필드명 유지
+    client_msg_id: Optional[str] = None  # DB 필드명 유지
     sender_id: int
-    content: str
-    created_at: datetime
-    sender_nickname: str
-    sender_profile_image_url: Optional[str] = None
-
-# 1:1 채팅 스키마 추가
-class DirectMessageResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    sender_id: int
-    receiver_id: int
-    content: str
-    created_at: datetime
-    is_read: bool
-    sender_nickname: str
-    sender_profile_image_url: Optional[str] = None
-    receiver_nickname: str
-    receiver_profile_image_url: Optional[str] = None
-
-class DirectMessageCreate(BaseModel):
-    content: str
-
-class DirectChatResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    other_user_id: int
-    other_user_nickname: str
-    other_user_profile_image_url: Optional[str] = None
-    last_message: Optional[str] = None
-    last_message_time: Optional[datetime] = None
-    unread_count: int
-
-class ChatRoomApprovalRequest(BaseModel):
-    is_approved: bool
-    admin_response: Optional[str] = None
-
-class ChatRoomListResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    sent_at: datetime
+    is_deleted: bool
     
-    pending_rooms: List[ChatRoomResponse]
-    approved_rooms: List[ChatRoomResponse]
-    total_pending: int
-    total_approved: int 
+    class Config:
+        from_attributes = True
+        allow_population_by_field_name = True
+        extra = "ignore"
+
+# WebSocket 메시지 스키마
+class WSMessage(BaseModel):
+    type: str  # "join", "leave", "message", "typing", "read_receipt", "pong"
+    room_id: Optional[int] = None
+    user_id: Optional[int] = None
+    content: Optional[str] = None
+    client_msg_id: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    is_typing: Optional[bool] = None
+    message_id: Optional[int] = None
+
+# 푸시 알림 등록 스키마
+class PushTokenRegister(BaseModel):
+    expo_push_token: str

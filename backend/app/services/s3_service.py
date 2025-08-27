@@ -1,4 +1,60 @@
 import boto3
+import os
+from botocore.client import Config
+from botocore.exceptions import ClientError
+import re
+
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_REGION = os.getenv('AWS_REGION', 'ap-northeast-2')
+S3_BUCKET = os.getenv('S3_BUCKET', 'camsaw-assets')
+
+def _build_s3_client():
+    # 자격증명이 있으면 명시적으로 사용, 없으면 인스턴스 프로파일/디폴트 체인 사용
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        print("S3 클라이언트: 환경변수 자격증명 사용")
+        return boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_REGION,
+            config=Config(s3={'addressing_style': 'path'})
+        )
+    else:
+        print("S3 클라이언트: 디폴트 자격증명 체인 사용(EC2 IAM 역할 등)")
+        return boto3.client(
+            's3',
+            region_name=AWS_REGION,
+            config=Config(s3={'addressing_style': 'path'})
+        )
+
+_s3 = _build_s3_client()
+
+def upload_chat_image(room_id: int, user_id: int, index: int, content_type: str, data: bytes) -> str:
+    """S3에 채팅 이미지 업로드 후 퍼블릭 URL 반환.
+    경로: chat/{room_id}/image_{user_id}_{index}.jpg
+    확장자는 content_type을 보고 유도.
+    """
+    ext = 'jpg'
+    if content_type:
+        if 'png' in content_type:
+            ext = 'png'
+        elif 'jpeg' in content_type or 'jpg' in content_type:
+            ext = 'jpg'
+        elif 'webp' in content_type:
+            ext = 'webp'
+
+    key = f"chat/{room_id}/image_{user_id}_{index}.{ext}"
+    _s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=key,
+        Body=data,
+        ContentType=content_type or 'image/jpeg',
+        ACL='public-read'
+    )
+    return f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{key}"
+
+import boto3
 from botocore.exceptions import ClientError
 import os
 import uuid
@@ -40,6 +96,34 @@ class S3Service:
         self._initialized = True
         print(f"S3 서비스 초기화 완료: 버킷 {bucket_name}")
     
+    def get_next_chat_index(self, room_id: int, user_id: int) -> int:
+        """chat/{room_id}/image_{user_id}_X.* 키들 중 최대 X+1을 반환.
+        키가 없으면 0 반환.
+        """
+        self._initialize()
+        prefix = f"chat/{room_id}/image_{user_id}_"
+        try:
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            page_iter = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+            max_idx = -1
+            pattern = re.compile(rf"^{re.escape(prefix)}(\d+)\.")
+            for page in page_iter:
+                for obj in page.get('Contents', []) or []:
+                    key = obj.get('Key', '')
+                    m = pattern.match(key)
+                    if m:
+                        try:
+                            idx = int(m.group(1))
+                            if idx > max_idx:
+                                max_idx = idx
+                        except Exception:
+                            continue
+            return max_idx + 1
+        except ClientError as e:
+            print(f"S3 list_objects 오류: {e}")
+            return 0
+
+    
     async def upload_image(self, file_data: bytes, filename: str, content_type: str = 'image/jpeg') -> str:
         """
         이미지를 S3에 업로드하고 URL을 반환합니다.
@@ -51,13 +135,14 @@ class S3Service:
             # 이미지 최적화 (선택사항)
             optimized_image_data = await self._optimize_image(file_data)
 
-            # 경로별로 다른 폴더 사용
-            if filename.startswith('users/'):
-                s3_key = filename
-            elif filename.startswith('news/') or filename.startswith('notice/'):
-                s3_key = filename
+            # 파일명 정규화 및 상위 폴더 결정
+            norm = (filename or '').lstrip('/')
+            # chat/, users/, news/, notice/, posts/ 로 시작하면 그대로 사용
+            if norm.startswith(('chat/', 'users/', 'news/', 'notice/', 'posts/')):
+                s3_key = norm
             else:
-                s3_key = f"posts/{filename}"
+                # 기본 posts 폴더로 수용
+                s3_key = f"posts/{norm}"
             print(f"S3 업로드 - 최종 Key: {s3_key}")
 
             self.s3_client.put_object(
@@ -174,14 +259,16 @@ class S3Service:
             # PIL로 이미지 열기
             image = Image.open(io.BytesIO(image_data))
             
-            # 이미지가 너무 크면 리사이즈
-            max_size = (1920, 1920)
+            # 이미지가 너무 크면 리사이즈 (업로드 바디 축소)
+            max_size = (1280, 1280)
             if image.size[0] > max_size[0] or image.size[1] > max_size[1]:
                 image.thumbnail(max_size, Image.Resampling.LANCZOS)
             
-            # JPEG로 변환하여 용량 줄이기
+            # JPEG로 변환하여 용량 줄이기 (품질 80%)
             output = io.BytesIO()
-            image.save(output, format='JPEG', quality=85, optimize=True)
+            if image.mode in ("RGBA", "P"):
+                image = image.convert("RGB")
+            image.save(output, format='JPEG', quality=80, optimize=True)
             output.seek(0)
             
             return output.getvalue()

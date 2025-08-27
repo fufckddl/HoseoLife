@@ -14,11 +14,13 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { postService, PostResponse, Comment } from '../services/postService';
+import { postService, PostResponse, Comment, ScrapResponse, ScrapStatus } from '../services/postService';
 import { userService } from '../services/userService';
+import { chatService } from '../services/chatService';
 import { useAuth } from '../contexts/AuthContext';
 import { FullScreenImageViewer } from '../components/FullScreenImageViewer';
 import ReportModal from '../components/ReportModal';
+import { Ionicons } from '@expo/vector-icons';
 
 interface PostDetail extends PostResponse {
   comments?: Comment[];
@@ -44,10 +46,15 @@ export default function PostDetailScreen() {
   const [isHearted, setIsHearted] = React.useState(false);
   const [heartCount, setHeartCount] = React.useState(0);
   const [togglingHeart, setTogglingHeart] = React.useState(false);
+  const [isScrapped, setIsScrapped] = React.useState(false);
+  const [scrapCount, setScrapCount] = React.useState(0);
+  const [togglingScrap, setTogglingScrap] = React.useState(false);
   const [fullScreenImageVisible, setFullScreenImageVisible] = React.useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = React.useState(0);
   const [showReportModal, setShowReportModal] = React.useState(false);
   const [reportTarget, setReportTarget] = React.useState<{ type: 'post' | 'comment', id: number, content?: string } | null>(null);
+  const [showPostMenu, setShowPostMenu] = React.useState(false);
+  const [showCommentMenu, setShowCommentMenu] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     console.log('=== PostDetailScreen useEffect 실행 ===');
@@ -72,6 +79,7 @@ export default function PostDetailScreen() {
         fetchPostDetail(true); // 새로고침 시에도 로딩 인디케이터 표시
         fetchComments();
         fetchHeartStatus();
+        fetchScrapStatus();
       } else {
         console.log('postId가 없음, 데이터 가져오기 건너뜀');
       }
@@ -138,6 +146,16 @@ export default function PostDetailScreen() {
     }
   };
 
+  const fetchScrapStatus = async () => {
+    try {
+      const scrapStatus = await postService.getScrapStatus(parseInt(postId));
+      setIsScrapped(scrapStatus.is_scrapped);
+      setScrapCount(scrapStatus.scrap_count);
+    } catch (error) {
+      console.error('스크랩 상태 조회 실패:', error);
+    }
+  };
+
   const handleHeartToggle = async () => {
     if (togglingHeart) return;
     
@@ -174,6 +192,32 @@ export default function PostDetailScreen() {
       Alert.alert('오류', '하트 토글에 실패했습니다.');
     } finally {
       setTogglingHeart(false);
+    }
+  };
+
+  const handleScrapToggle = async () => {
+    if (togglingScrap) return;
+    
+    try {
+      setTogglingScrap(true);
+      console.log('스크랩 토글 시작, postId:', postId);
+      const response = await postService.toggleScrap(parseInt(postId));
+      console.log('스크랩 토글 응답:', response);
+      
+      // 로컬 상태 즉시 업데이트
+      setIsScrapped(response.is_scrapped);
+      setScrapCount(response.scrap_count);
+      
+      console.log('스크랩 토글 완료, 새로운 상태:', {
+        isScrapped: response.is_scrapped,
+        scrapCount: response.scrap_count
+      });
+      
+    } catch (error) {
+      console.error('스크랩 토글 실패:', error);
+      Alert.alert('오류', '스크랩 토글에 실패했습니다.');
+    } finally {
+      setTogglingScrap(false);
     }
   };
 
@@ -236,6 +280,35 @@ export default function PostDetailScreen() {
     setFullScreenImageVisible(true);
   };
 
+  const handleAuthorChat = async (authorId: number, authorNickname: string) => {
+    if (authorId === currentUserId) {
+      return; // 자신과는 채팅할 수 없음
+    }
+
+    Alert.alert(
+      '1:1 채팅 시작',
+      `${authorNickname}님과 1:1 채팅하시겠습니까?`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '확인',
+          onPress: async () => {
+            try {
+              // 1:1 채팅방 찾기 또는 생성
+              const chatRoom = await chatService.findOrCreateDirectChat(authorId);
+              
+              // 채팅방으로 이동 (새로운 Room 모델)
+              router.push(`/pages/chat-room?id=${chatRoom.id}&type=dm`);
+            } catch (error) {
+              console.error('채팅방 생성 실패:', error);
+              Alert.alert('오류', '채팅방을 생성하는데 실패했습니다.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleCloseFullScreenImage = () => {
     console.log('전체화면 이미지 닫기');
     setFullScreenImageVisible(false);
@@ -284,18 +357,7 @@ export default function PostDetailScreen() {
   };
 
   const getCategoryColor = (category: string) => {
-    switch (category) {
-      case '일상':
-        return '#4CAF50';
-      case '사람':
-        return '#2196F3';
-      case '질문':
-        return '#FF9800';
-      case '행사':
-        return '#E91E63';
-      default:
-        return '#9E9E9E';
-    }
+    return '#000000';
   };
 
   const handleDeletePost = async () => {
@@ -342,7 +404,7 @@ export default function PostDetailScreen() {
         {/* 뒤로가기 버튼 */}
         <View style={styles.loadingHeader}>
           <TouchableOpacity style={styles.loadingBackButton} onPress={() => router.back()}>
-            <Text style={styles.loadingBackIcon}>←</Text>
+            <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
         </View>
         <View style={styles.loadingContainer}>
@@ -359,7 +421,7 @@ export default function PostDetailScreen() {
         {/* 뒤로가기 버튼 */}
         <View style={styles.loadingHeader}>
           <TouchableOpacity style={styles.loadingBackButton} onPress={() => router.back()}>
-            <Text style={styles.loadingBackIcon}>←</Text>
+            <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
         </View>
         <View style={styles.errorContainer}>
@@ -384,17 +446,18 @@ export default function PostDetailScreen() {
           console.log('뒤로가기 버튼 클릭, 이전 화면으로 이동');
           router.back();
         }}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        {/* 뉴스/공지가 아닌 경우에만 위치 정보 표시 */}
-        {!isNewsOrNotice && (
+        {/* 위치 카테고리인 경우에만 위치 정보 표시 */}
+        {post.category === '위치' && (
         <View style={styles.locationInfo}>
-          <Text style={styles.locationIcon}>📍</Text>
+          <Ionicons name="location" size={16} color="#333" />
           <Text style={styles.locationText}>
             {post.building_name} 근처 - {formatTimeAgo(post.created_at)}
           </Text>
         </View>
         )}
+
         {/* 뉴스/공지의 경우 시간만 표시 */}
         {isNewsOrNotice && (
           <View style={styles.locationInfo}>
@@ -403,40 +466,13 @@ export default function PostDetailScreen() {
             </Text>
           </View>
         )}
-        <View style={styles.actionButtons}>
-          {currentUserId === post.author_id ? (
-            // 작성자인 경우: 삭제 | 수정 | 신고
-            <>
-              <TouchableOpacity 
-                style={styles.deleteButton} 
-                onPress={handleDeletePost}
-              >
-                <Text style={styles.deleteButtonText}>삭제</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.editButton} 
-                onPress={() => {
-                  router.push(`/pages/edit-post?id=${postId}`);
-                }}
-              >
-                <Text style={styles.editButtonText}>수정</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.reportButton} 
-                onPress={() => handleReportPost(postId)}
-              >
-                <Text style={styles.reportButtonText}>신고</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            // 작성자가 아닌 경우: 신고
-            <TouchableOpacity 
-              style={styles.reportButton} 
-              onPress={() => handleReportPost(postId)}
-            >
-              <Text style={styles.reportButtonText}>신고</Text>
-            </TouchableOpacity>
-          )}
+        <View style={styles.headerRight}>
+          <TouchableOpacity 
+            style={styles.menuButton} 
+            onPress={() => setShowPostMenu(!showPostMenu)}
+          >
+            <Ionicons name="ellipsis-vertical" size={24} color="#000000" />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -448,33 +484,29 @@ export default function PostDetailScreen() {
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           {/* 카테고리 및 작성자 태그 */}
           <View style={styles.tagContainer}>
-            <View style={[styles.categoryTag, { backgroundColor: getCategoryColor(post.category) }]}>
-              <Text style={styles.categoryText}>{post.category}</Text>
+            <View style={styles.tagLeftSection}>
+              <View style={[styles.categoryTag, { backgroundColor: getCategoryColor(post.category) }]}>
+                <Text style={styles.categoryText}>{post.category}</Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.authorTag}
+                onPress={() => handleAuthorChat(post.author_id, post.author_nickname)}
+                disabled={post.author_id === currentUserId}
+              >
+                <Text style={[
+                  styles.authorText,
+                  post.author_id === currentUserId && styles.authorTextDisabled
+                ]}>
+                  {post.author_nickname}
+                </Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity 
-              style={styles.authorTag}
-              onPress={() => {
-                // 자신의 게시글이 아닌 경우에만 1:1 채팅으로 이동
-                if (post.author_id !== currentUserId) {
-                  router.push({
-                    pathname: '/pages/direct-chat',
-                    params: {
-                      otherUserId: post.author_id.toString(),
-                      otherUserNickname: post.author_nickname,
-                      otherUserProfileImage: post.author_profile_image_url || ''
-                    }
-                  });
-                }
-              }}
-              disabled={post.author_id === currentUserId}
-            >
-              <Text style={[
-                styles.authorText,
-                post.author_id === currentUserId && styles.authorTextDisabled
-              ]}>
-                {post.author_nickname}
+            {/* 위치가 아닌 카테고리의 경우 시간을 우측에 표시 */}
+            {post.category !== '위치' && (
+              <Text style={styles.timeText}>
+                {formatTimeAgo(post.created_at)}
               </Text>
-            </TouchableOpacity>
+            )}
           </View>
 
           {/* 게시글 제목 */}
@@ -516,19 +548,35 @@ export default function PostDetailScreen() {
               style={[styles.engagementItem, togglingHeart && styles.engagementItemDisabled]}
               disabled={togglingHeart}
             >
-              <Text style={[styles.engagementIcon, isHearted && styles.heartIconActive]}>
-                {isHearted ? '🖤' : '🤍'}
-              </Text>
+              <Ionicons 
+                name={isHearted ? "heart" : "heart-outline"} 
+                size={20} 
+                color={isHearted ? "#FF3B30" : "#333"} 
+              />
               <Text style={[styles.engagementText, isHearted && styles.heartTextActive]}>
                 {heartCount}
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={handleScrapToggle} 
+              style={[styles.engagementItem, togglingScrap && styles.engagementItemDisabled]}
+              disabled={togglingScrap}
+            >
+              <Ionicons 
+                name={isScrapped ? "bookmark" : "bookmark-outline"} 
+                size={20} 
+                color={isScrapped ? "#FF9800" : "#333"} 
+              />
+              <Text style={[styles.engagementText, isScrapped && styles.scrapTextActive]}>
+                {scrapCount}
+              </Text>
+            </TouchableOpacity>
             <View style={styles.engagementItem}>
-              <Text style={styles.engagementIcon}>💬</Text>
+              <Ionicons name="chatbubble-outline" size={20} color="#333" />
               <Text style={styles.engagementText}>{post.comment_count}</Text>
             </View>
             <View style={styles.engagementItem}>
-              <Text style={styles.engagementIcon}>👁️</Text>
+              <Ionicons name="eye-outline" size={20} color="#333" />
               <Text style={styles.engagementText}>{post.view_count}</Text>
             </View>
           </View>
@@ -564,38 +612,76 @@ export default function PostDetailScreen() {
                           style={styles.commentAuthorImage} 
                         />
                       )}
-                      <Text style={styles.commentAuthor}>{comment.author_nickname}</Text>
+                      <TouchableOpacity 
+                        onPress={() => handleAuthorChat(comment.author_id, comment.author_nickname)}
+                        disabled={comment.author_id === currentUserId}
+                      >
+                        <Text style={[
+                          styles.commentAuthor,
+                          comment.author_id === currentUserId && styles.commentAuthorDisabled
+                        ]}>
+                          {comment.author_nickname}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                     <View style={styles.commentRightSection}>
                       <Text style={styles.commentTime}>{formatTimeAgo(comment.created_at)}</Text>
-                      {currentUserId === comment.author_id ? (
-                        // 댓글 작성자인 경우: 삭제 | 신고
-                        <>
-                          <TouchableOpacity 
-                            style={styles.commentDeleteButton}
-                            onPress={() => handleDeleteComment(comment.id)}
-                          >
-                            <Text style={styles.commentDeleteText}>삭제</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity 
-                            style={styles.commentReportButton}
-                            onPress={() => handleReportComment(comment.id)}
-                          >
-                            <Text style={styles.commentReportText}>신고</Text>
-                          </TouchableOpacity>
-                        </>
-                      ) : (
-                        // 댓글 작성자가 아닌 경우: 신고
-                        <TouchableOpacity 
-                          style={styles.commentReportButton}
-                          onPress={() => handleReportComment(comment.id)}
-                        >
-                          <Text style={styles.commentReportText}>신고</Text>
-                        </TouchableOpacity>
-                      )}
+                      <TouchableOpacity 
+                        style={styles.commentMenuButton} 
+                        onPress={() => setShowCommentMenu(showCommentMenu === comment.id ? null : comment.id)}
+                      >
+                        <Ionicons name="ellipsis-vertical" size={16} color="#000000" />
+                      </TouchableOpacity>
                     </View>
                   </View>
                   <Text style={styles.commentContent}>{comment.content}</Text>
+                  
+                  {/* 댓글 메뉴 드롭다운 */}
+                  {showCommentMenu === comment.id && (
+                    <View style={styles.commentMenuOverlay}>
+                      <TouchableOpacity 
+                        style={styles.commentMenuBackdrop} 
+                        onPress={() => setShowCommentMenu(null)}
+                        activeOpacity={1}
+                      />
+                      <View style={styles.commentMenuContainer}>
+                        {currentUserId === comment.author_id ? (
+                          // 댓글 작성자인 경우: 삭제 | 신고
+                          <>
+                            <TouchableOpacity 
+                              style={styles.commentMenuItem} 
+                              onPress={() => {
+                                setShowCommentMenu(null);
+                                handleDeleteComment(comment.id);
+                              }}
+                            >
+                              <Text style={styles.commentMenuItemText}>삭제</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                              style={styles.commentMenuItem} 
+                              onPress={() => {
+                                setShowCommentMenu(null);
+                                handleReportComment(comment.id);
+                              }}
+                            >
+                              <Text style={styles.commentMenuItemText}>신고</Text>
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          // 댓글 작성자가 아닌 경우: 신고
+                          <TouchableOpacity 
+                            style={styles.commentMenuItem} 
+                            onPress={() => {
+                              setShowCommentMenu(null);
+                              handleReportComment(comment.id);
+                            }}
+                          >
+                            <Text style={styles.commentMenuItemText}>신고</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  )}
                 </View>
               );
             })
@@ -657,6 +743,62 @@ export default function PostDetailScreen() {
         onClose={handleCloseFullScreenImage}
       />
 
+      {/* 게시글 메뉴 드롭다운 */}
+      {showPostMenu && (
+        <View style={styles.menuOverlay}>
+          <TouchableOpacity 
+            style={styles.menuBackdrop} 
+            onPress={() => setShowPostMenu(false)}
+            activeOpacity={1}
+          />
+          <View style={styles.menuContainer}>
+            {currentUserId === post.author_id ? (
+              // 작성자인 경우: 삭제 | 수정 | 신고
+              <>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setShowPostMenu(false);
+                    handleDeletePost();
+                  }}
+                >
+                  <Text style={styles.menuItemText}>삭제</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setShowPostMenu(false);
+                    router.push(`/pages/edit-post?id=${postId}`);
+                  }}
+                >
+                  <Text style={styles.menuItemText}>수정</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setShowPostMenu(false);
+                    handleReportPost(postId);
+                  }}
+                >
+                  <Text style={styles.menuItemText}>신고</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              // 작성자가 아닌 경우: 신고
+              <TouchableOpacity 
+                style={styles.menuItem} 
+                onPress={() => {
+                  setShowPostMenu(false);
+                  handleReportPost(postId);
+                }}
+              >
+                <Text style={styles.menuItemText}>신고</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
       {/* 신고 모달 */}
       {reportTarget && (
         <ReportModal
@@ -702,71 +844,33 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
+  headerRight: {
+    alignItems: 'center',
+  },
   backButton: {
     marginRight: 12,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#333',
-    fontWeight: '600',
-  },
+
   locationInfo: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
   },
-  locationIcon: {
-    fontSize: 16,
-    marginRight: 8,
-  },
+
   locationText: {
     fontSize: 14,
     color: '#333',
     fontWeight: '500',
+    marginLeft: 8,
   },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  editButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#007AFF',
-    borderRadius: 16,
-  },
-  editButtonText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  deleteButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#FF3B30',
-    borderRadius: 16,
-  },
-  deleteButtonText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  reportButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#FF9500',
-    borderRadius: 16,
-  },
-  reportButtonText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
+
   content: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -776,6 +880,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 12,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  tagLeftSection: {
+    flexDirection: 'row',
     gap: 8,
   },
   categoryTag: {
@@ -845,9 +954,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  engagementIcon: {
-    fontSize: 16,
-  },
+
   engagementText: {
     fontSize: 14,
     color: '#333',
@@ -897,39 +1004,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
+  commentAuthorDisabled: {
+    color: '#999',
+  },
   commentTime: {
     fontSize: 12,
     color: '#999',
     marginLeft: 8,
+  },
+  timeText: {
+    fontSize: 12,
+    color: '#999',
+    fontFamily: 'GmarketSans',
   },
   commentContent: {
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
   },
-  commentDeleteButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#FF3B30',
-    borderRadius: 8,
-  },
-  commentDeleteText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
 
-  commentReportButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#FF9500',
-    borderRadius: 8,
-  },
-  commentReportText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
   noCommentContainer: {
     alignItems: 'center',
     paddingVertical: 20,
@@ -1008,9 +1101,7 @@ const styles = StyleSheet.create({
   engagementItemDisabled: {
     opacity: 0.7,
   },
-  heartIconActive: {
-    fontSize: 18,
-  },
+
   heartTextActive: {
     color: '#FF3B30',
     fontWeight: '600',
@@ -1035,9 +1126,106 @@ const styles = StyleSheet.create({
   loadingBackButton: {
     marginRight: 12,
   },
-  loadingBackIcon: {
-    fontSize: 24,
-    color: '#333',
+
+
+  scrapTextActive: {
+    color: '#FF9800',
     fontWeight: '600',
+  },
+  menuButton: {
+    padding: 8,
+  },
+  menuOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+  menuBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  menuContainer: {
+    position: 'absolute',
+    top: 80,
+    right: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    minWidth: 120,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    justifyContent: 'center',
+  },
+  menuItemText: {
+    fontSize: 16,
+    color: '#000000',
+    fontWeight: '500',
+  },
+  commentMenuButton: {
+    padding: 4,
+  },
+  commentMenuOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+  commentMenuBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  commentMenuContainer: {
+    position: 'absolute',
+    top: 40,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingVertical: 4,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    minWidth: 100,
+  },
+  commentMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    justifyContent: 'center',
+  },
+  commentMenuItemText: {
+    fontSize: 14,
+    color: '#000000',
+    fontWeight: '500',
   },
 }); 

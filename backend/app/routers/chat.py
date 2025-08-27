@@ -1,491 +1,392 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
-from typing import List
-from datetime import datetime, timezone, timedelta
-
-from ..db.database import get_db
-from ..models.user import User
-from ..models.chat import ChatRoom, ChatMessage
-from ..schemas.chat import (
-    ChatRoomCreate, 
-    ChatRoomResponse, 
-    ChatRoomDetailResponse,
-    ChatMessageCreate,
-    ChatMessageResponse,
-    ChatRoomApprovalRequest,
-    ChatRoomListResponse
-)
-from ..routers.user import get_current_user
-from ..services.fcm_service import send_chat_notification
+from sqlalchemy import func
+from app.db.database import SessionLocal
+from typing import List, Optional
+from app.db.database import get_db
+from app.models.chat import ChatRoom, ChatMessage
+from app.models.user import User
+from app.schemas.chat import ChatRoomCreate, ChatRoomResponse, ChatMessageCreate, ChatMessageResponse, PushTokenRegister
+from app.websocket_manager import manager
+from app.routers.user import get_current_user
+import json
+from datetime import datetime
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-def get_korea_time():
-    """한국 시간을 반환하는 함수"""
-    korea_tz = timezone(timedelta(hours=9))
-    return datetime.now(korea_tz)
+# 채팅방 목록 조회
+@router.get("/rooms", response_model=List[ChatRoomResponse])
+def get_chat_rooms(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """사용자가 참여 중인 채팅방 목록을 조회합니다."""
+    print(f"🔍 채팅방 목록 조회 - 사용자 ID: {current_user.id}")
+    
+    # 전체 채팅방 수 확인
+    total_rooms = db.query(ChatRoom).filter(ChatRoom.is_active == True).count()
+    print(f"📊 전체 활성 채팅방 수: {total_rooms}")
+    
+    user_rooms = db.query(ChatRoom).join(ChatRoom.members).filter(
+        User.id == current_user.id,
+        ChatRoom.is_active == True
+    ).all()
+    
+    print(f"👤 사용자 {current_user.id}가 참여한 채팅방 수: {len(user_rooms)}")
+    
+    # 채팅방 정보와 마지막 메시지, 상대방 정보 포함하여 반환
+    result = []
+    for room in user_rooms:
+        print(f"🏠 채팅방 {room.id}: {room.name} (타입: {room.type})")
+        
+        # 마지막 메시지 조회
+        last_message = db.query(ChatMessage).filter(
+            ChatMessage.room_id == room.id,
+            ChatMessage.is_deleted == False
+        ).order_by(ChatMessage.id.desc()).first()
+        
+        # 1:1 채팅인 경우 상대방 정보 조회
+        other_user = None
+        if room.type == "dm":
+            other_members = [member for member in room.members if member.id != current_user.id]
+            if other_members:
+                other_user = other_members[0]
+        
+        room_dict = {
+            "id": room.id,
+            "name": room.name or (f"{other_user.nickname}님과의 채팅" if other_user else "채팅방"),
+            "type": room.type,
+            "created_by": room.created_by,
+            "created_at": room.created_at,
+            "is_active": room.is_active,
+            "members": [member.id for member in room.members],
+            "last_message": {
+                "content": last_message.content if last_message else None,
+                "sent_at": last_message.sent_at if last_message else None,
+                "sender_id": last_message.sender_id if last_message else None
+            } if last_message else None,
+            "other_user": {
+                "id": other_user.id,
+                "nickname": other_user.nickname,
+                "profile_image_url": other_user.profile_image_url
+            } if other_user else None
+        }
+        result.append(room_dict)
+    
+    print(f"✅ 반환할 채팅방 목록: {len(result)}개")
+    return result
 
-# 채팅방 생성 요청
+# 1:1 채팅방 조회
+@router.get("/rooms/dm")
+def get_dm_room(
+    target_user_id: int = Query(..., description="상대방 사용자 ID"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """1:1 채팅방이 존재하는지 확인하고 반환합니다."""
+    # 상대방 사용자 존재 확인
+    target_user = db.query(User).filter(User.id == target_user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+    
+    # 기존 1:1 채팅방 조회
+    existing_room = db.query(ChatRoom).join(ChatRoom.members).filter(
+        ChatRoom.type == "dm",
+        ChatRoom.is_active == True,
+        User.id.in_([current_user.id, target_user_id])
+    ).group_by(ChatRoom.id).having(
+        func.count(User.id) == 2
+    ).first()
+    
+    if existing_room:
+        # 멤버 ID만 추출하여 반환
+        room_dict = {
+            "id": existing_room.id,
+            "name": existing_room.name,
+            "type": existing_room.type,
+            "created_by": existing_room.created_by,
+            "created_at": existing_room.created_at,
+            "is_active": existing_room.is_active,
+            "members": [member.id for member in existing_room.members]
+        }
+        return {"exists": True, "room": room_dict}
+    else:
+        return {"exists": False, "room": None}
+
+# 채팅방 생성
 @router.post("/rooms", response_model=ChatRoomResponse)
 def create_chat_room(
-    chat_data: ChatRoomCreate,
+    room_data: ChatRoomCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """채팅방 생성 요청"""
-    
-    # 채팅방 생성
-    new_chat_room = ChatRoom(
-        title=chat_data.title,
-        purpose=chat_data.purpose,
-        created_by=current_user.id,
-        is_approved=None  # None으로 설정하여 대기 상태로 만듦
-    )
-    
-    db.add(new_chat_room)
-    db.commit()
-    db.refresh(new_chat_room)
-    
-    # 생성자를 멤버로 추가
-    new_chat_room.members.append(current_user)
-    db.commit()
-    
-    print(f"채팅방 생성 완료: {new_chat_room.title} (ID: {new_chat_room.id})")
-    print(f"생성자: {current_user.nickname} (ID: {current_user.id})")
-    print(f"멤버 수: {len(new_chat_room.members)}")
-    
-    # 응답 데이터 구성
-    response_data = ChatRoomResponse(
-        id=new_chat_room.id,
-        title=new_chat_room.title,
-        purpose=new_chat_room.purpose,
-        created_by=new_chat_room.created_by,
-        created_at=new_chat_room.created_at,
-        is_active=new_chat_room.is_active,
-        is_approved=new_chat_room.is_approved,
-        approved_by=new_chat_room.approved_by,
-        approved_at=new_chat_room.approved_at,
-        creator_nickname=current_user.nickname,
-        creator_profile_image_url=current_user.profile_image_url,
-        member_count=1,
-        last_message=None,
-        last_message_time=None
-    )
-    
-    return response_data
-
-# 사용자의 채팅방 목록 조회
-@router.get("/rooms", response_model=ChatRoomListResponse)
-def get_user_chat_rooms(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """사용자가 참여한 채팅방 목록 조회"""
-    
-    print(f"사용자 {current_user.email}의 채팅방 목록 조회")
-    
-    # 승인된 채팅방만 조회
-    approved_rooms = db.query(ChatRoom).filter(
-        ChatRoom.is_approved == True,
-        ChatRoom.is_active == True,
-        ChatRoom.members.any(id=current_user.id)
-    ).offset(skip).limit(limit).all()
-    
-    print(f"승인된 채팅방 수: {len(approved_rooms)}")
-    for room in approved_rooms:
-        print(f"  - {room.title} (ID: {room.id})")
-    
-    # 대기 중인 채팅방 (본인이 생성한 것만)
-    pending_rooms = db.query(ChatRoom).filter(
-        ChatRoom.is_approved.is_(None),
-        ChatRoom.created_by == current_user.id
-    ).offset(skip).limit(limit).all()
-    
-    print(f"대기 중인 채팅방 수: {len(pending_rooms)}")
-    for room in pending_rooms:
-        print(f"  - {room.title} (ID: {room.id})")
-    
-    # 응답 데이터 구성
-    def create_room_response(room: ChatRoom, is_pending: bool = False):
-        # 마지막 메시지 조회
-        last_message = db.query(ChatMessage).filter(
-            ChatMessage.chat_id == room.id
-        ).order_by(desc(ChatMessage.created_at)).first()
+    """새로운 채팅방을 생성합니다."""
+    # 1:1 채팅인 경우 기존 채팅방 확인
+    if room_data.type == "dm" and len(room_data.members) == 1:
+        other_user_id = room_data.members[0]
+        existing_room = db.query(ChatRoom).join(ChatRoom.members).filter(
+            ChatRoom.type == "dm",
+            ChatRoom.is_active == True,
+            User.id.in_([current_user.id, other_user_id])
+        ).group_by(ChatRoom.id).having(
+            func.count(User.id) == 2
+        ).first()
         
-        return ChatRoomResponse(
-            id=room.id,
-            title=room.title,
-            purpose=room.purpose,
-            created_by=room.created_by,
-            created_at=room.created_at,
-            is_active=room.is_active,
-            is_approved=room.is_approved,
-            approved_by=room.approved_by,
-            approved_at=room.approved_at,
-            creator_nickname=room.creator.nickname,
-            creator_profile_image_url=room.creator.profile_image_url,
-            member_count=len(room.members),
-            last_message=last_message.content if last_message else None,
-            last_message_time=last_message.created_at if last_message else None
-        )
+        if existing_room:
+            # 멤버 ID만 추출하여 반환
+            room_dict = {
+                "id": existing_room.id,
+                "name": existing_room.name,
+                "type": existing_room.type,
+                "created_by": existing_room.created_by,
+                "created_at": existing_room.created_at,
+                "is_active": existing_room.is_active,
+                "members": [member.id for member in existing_room.members]
+            }
+            return room_dict
     
-    approved_responses = [create_room_response(room) for room in approved_rooms]
-    pending_responses = [create_room_response(room, True) for room in pending_rooms]
-    
-    return ChatRoomListResponse(
-        pending_rooms=pending_responses,
-        approved_rooms=approved_responses,
-        total_pending=len(pending_responses),
-        total_approved=len(approved_responses)
+    # 새 채팅방 생성
+    new_room = ChatRoom(
+        name=room_data.name,
+        type=room_data.type,
+        created_by=current_user.id
     )
-
-# 전체 채팅방 목록 조회 (승인된 채팅방만)
-@router.get("/rooms/all", response_model=List[ChatRoomResponse])
-def get_all_chat_rooms(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """전체 채팅방 목록 조회 (승인된 채팅방만)"""
+    db.add(new_room)
+    db.flush()  # ID 생성
     
-    print(f"사용자 {current_user.email}의 전체 채팅방 목록 조회")
+    # 멤버 추가 (생성자 포함)
+    members = [current_user.id] + room_data.members
+    member_users = db.query(User).filter(User.id.in_(members)).all()
+    new_room.members = member_users
     
-    # 승인된 활성 채팅방만 조회
-    all_rooms = db.query(ChatRoom).filter(
-        ChatRoom.is_approved == True,
-        ChatRoom.is_active == True
-    ).order_by(ChatRoom.created_at.desc()).offset(skip).limit(limit).all()
-    
-    print(f"전체 채팅방 수: {len(all_rooms)}")
-    for room in all_rooms:
-        print(f"  - {room.title} (ID: {room.id})")
-    
-    def create_room_response(room: ChatRoom):
-        # 마지막 메시지 조회
-        last_message = db.query(ChatMessage).filter(
-            ChatMessage.chat_id == room.id
-        ).order_by(desc(ChatMessage.created_at)).first()
-        
-        # 현재 사용자가 멤버인지 확인
-        is_member = current_user in room.members
-        
-        return ChatRoomResponse(
-            id=room.id,
-            title=room.title,
-            purpose=room.purpose,
-            created_by=room.created_by,
-            created_at=room.created_at,
-            is_active=room.is_active,
-            is_approved=room.is_approved,
-            approved_by=room.approved_by,
-            approved_at=room.approved_at,
-            creator_nickname=room.creator.nickname,
-            creator_profile_image_url=room.creator.profile_image_url,
-            member_count=len(room.members),
-            last_message=last_message.content if last_message else None,
-            last_message_time=last_message.created_at if last_message else None
-        )
-    
-    return [create_room_response(room) for room in all_rooms]
-
-# 채팅방 참여
-@router.post("/rooms/{room_id}/join", response_model=ChatRoomResponse)
-def join_chat_room(
-    room_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """채팅방 참여"""
-    
-    chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
-    if not chat_room:
-        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
-    
-    # 승인되지 않은 채팅방은 참여 불가
-    if not chat_room.is_approved:
-        raise HTTPException(status_code=403, detail="승인되지 않은 채팅방입니다.")
-    
-    # 비활성화된 채팅방은 참여 불가
-    if not chat_room.is_active:
-        raise HTTPException(status_code=403, detail="비활성화된 채팅방입니다.")
-    
-    # 이미 멤버인지 확인
-    if current_user in chat_room.members:
-        raise HTTPException(status_code=400, detail="이미 참여 중인 채팅방입니다.")
-    
-    # 채팅방에 참여
-    chat_room.members.append(current_user)
     db.commit()
-    db.refresh(chat_room)
+    db.refresh(new_room)
     
-    print(f"사용자 {current_user.email}이 채팅방 {chat_room.title}에 참여했습니다.")
-    
-    return ChatRoomResponse(
-        id=chat_room.id,
-        title=chat_room.title,
-        purpose=chat_room.purpose,
-        created_by=chat_room.created_by,
-        created_at=chat_room.created_at,
-        is_active=chat_room.is_active,
-        is_approved=chat_room.is_approved,
-        approved_by=chat_room.approved_by,
-        approved_at=chat_room.approved_at,
-        creator_nickname=chat_room.creator.nickname,
-        creator_profile_image_url=chat_room.creator.profile_image_url,
-        member_count=len(chat_room.members),
-        last_message=None,
-        last_message_time=None
-    )
+    # 멤버 ID만 추출하여 반환
+    room_dict = {
+        "id": new_room.id,
+        "name": new_room.name,
+        "type": new_room.type,
+        "created_by": new_room.created_by,
+        "created_at": new_room.created_at,
+        "is_active": new_room.is_active,
+        "members": [member.id for member in new_room.members]
+    }
+    return room_dict
 
-# 채팅방 상세 정보 조회
-@router.get("/rooms/{room_id}", response_model=ChatRoomDetailResponse)
-def get_chat_room_detail(
-    room_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """채팅방 상세 정보 조회"""
-    
-    chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
-    if not chat_room:
-        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
-    
-    # 승인되지 않은 채팅방은 생성자만 접근 가능
-    if not chat_room.is_approved and chat_room.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="승인되지 않은 채팅방입니다.")
-    
-    # 승인된 채팅방은 멤버만 접근 가능
-    if chat_room.is_approved and current_user not in chat_room.members:
-        raise HTTPException(status_code=403, detail="채팅방 멤버가 아닙니다.")
-    
-    # 멤버 정보 구성
-    members_info = []
-    for member in chat_room.members:
-        members_info.append({
-            "id": member.id,
-            "nickname": member.nickname,
-            "joined_at": chat_room.created_at  # 기본값으로 채팅방 생성 시간 사용
-        })
-    
-    return ChatRoomDetailResponse(
-        id=chat_room.id,
-        title=chat_room.title,
-        purpose=chat_room.purpose,
-        created_by=chat_room.created_by,
-        created_at=chat_room.created_at,
-        is_active=chat_room.is_active,
-        is_approved=chat_room.is_approved,
-        approved_by=chat_room.approved_by,
-        approved_at=chat_room.approved_at,
-        creator_nickname=chat_room.creator.nickname,
-        creator_profile_image_url=chat_room.creator.profile_image_url,
-        members=members_info
-    )
-
-# 채팅방 메시지 목록 조회
+# 채팅방 메시지 조회
 @router.get("/rooms/{room_id}/messages", response_model=List[ChatMessageResponse])
 def get_chat_messages(
     room_id: int,
+    cursor: Optional[int] = Query(None, description="마지막 메시지 ID"),
+    limit: int = Query(50, le=100, description="조회할 메시지 수"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100)
+    db: Session = Depends(get_db)
 ):
-    """채팅방 메시지 목록 조회"""
+    """채팅방의 메시지를 조회합니다."""
+    # 채팅방 멤버 확인
+    room = db.query(ChatRoom).join(ChatRoom.members).filter(
+        ChatRoom.id == room_id,
+        ChatRoom.is_active == True,
+        User.id == current_user.id
+    ).first()
     
-    chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
-    if not chat_room:
-        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
+    if not room:
+        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다")
     
-    # 승인되지 않은 채팅방은 생성자만 접근 가능
-    if not chat_room.is_approved and chat_room.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="승인되지 않은 채팅방입니다.")
+    # 메시지 조회
+    query = db.query(ChatMessage).filter(
+        ChatMessage.room_id == room_id,
+        ChatMessage.is_deleted == False
+    )
     
-    # 승인된 채팅방은 멤버만 접근 가능
-    if chat_room.is_approved and current_user not in chat_room.members:
-        raise HTTPException(status_code=403, detail="채팅방 멤버가 아닙니다.")
+    if cursor:
+        query = query.filter(ChatMessage.id < cursor)
     
-    messages = db.query(ChatMessage).filter(
-        ChatMessage.chat_id == room_id
-    ).order_by(desc(ChatMessage.created_at)).offset(skip).limit(limit).all()
+    messages = query.order_by(ChatMessage.id.desc()).limit(limit).all()
+    messages.reverse()  # 시간순 정렬
     
-    # 최신 메시지부터 정렬
-    messages.reverse()
-    
-    return [
-        ChatMessageResponse(
-            id=msg.id,
-            chat_id=msg.chat_id,
-            sender_id=msg.sender_id,
-            content=msg.content,
-            created_at=msg.created_at,
-            sender_nickname=msg.sender.nickname,
-            sender_profile_image_url=msg.sender.profile_image_url
-        )
-        for msg in messages
-    ]
+    return messages
 
 # 메시지 전송
 @router.post("/rooms/{room_id}/messages", response_model=ChatMessageResponse)
-def send_message(
+async def send_message(
     room_id: int,
     message_data: ChatMessageCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """메시지 전송"""
+    """채팅방에 메시지를 전송합니다."""
+    # 채팅방 멤버 확인
+    room = db.query(ChatRoom).join(ChatRoom.members).filter(
+        ChatRoom.id == room_id,
+        ChatRoom.is_active == True,
+        User.id == current_user.id
+    ).first()
     
-    chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
-    if not chat_room:
-        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
+    if not room:
+        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다")
     
-    # 승인되지 않은 채팅방은 메시지 전송 불가
-    if not chat_room.is_approved:
-        raise HTTPException(status_code=403, detail="승인되지 않은 채팅방입니다.")
-    
-    # 멤버가 아닌 경우 메시지 전송 불가
-    if current_user not in chat_room.members:
-        raise HTTPException(status_code=403, detail="채팅방 멤버가 아닙니다.")
-    
-    # 메시지 생성
+    # 메시지 저장
     new_message = ChatMessage(
-        chat_id=room_id,
+        room_id=room_id,
         sender_id=current_user.id,
-        content=message_data.content
+        content=message_data.text,
+        client_msg_id=message_data.client_msg_id
     )
-    
     db.add(new_message)
     db.commit()
     db.refresh(new_message)
     
-    # 메시지 전송 시 FCM 알림 발송 (자신에게는 알림 안 보내기)
-    recipient_ids = [member.id for member in chat_room.members if member.id != current_user.id]
-    if recipient_ids:
-        try:
-            print(f"채팅 알림 전송 시작: 채팅방 ID={room_id}, 발신자={current_user.nickname}, 수신자 수={len(recipient_ids)}, 수신자 IDs={recipient_ids}")
-            send_chat_notification(
-                db=db,
-                chat_room_id=room_id,
-                sender_nickname=current_user.nickname,
-                message_content=message_data.content,
-                recipient_ids=recipient_ids
-            )
-            print("채팅 알림 전송 성공")
-        except Exception as e:
-            print(f"채팅 FCM 알림 발송 실패: {e}")
-            print(f"오류 타입: {type(e)}")
-    else:
-        print(f"채팅방에 다른 멤버가 없음: 알림 전송 건너뜀")
+    # WebSocket으로 실시간 전송
+    ws_message = {
+        "type": "message",
+        "room_id": room_id,
+        "user_id": current_user.id,
+        "content": message_data.text,
+        "client_msg_id": message_data.client_msg_id,
+        "sent_at": new_message.sent_at.isoformat()
+    }
     
-    return ChatMessageResponse(
-        id=new_message.id,
-        chat_id=new_message.chat_id,
-        sender_id=new_message.sender_id,
-        content=new_message.content,
-        created_at=new_message.created_at,
-        sender_nickname=current_user.nickname,
-        sender_profile_image_url=current_user.profile_image_url
+    # 온라인 사용자들에게 브로드캐스트
+    await manager.broadcast_to_room(
+        json.dumps(ws_message),
+        room_id,
+        exclude_user=current_user.id
     )
+    
+    # 오프라인 사용자들에게 알림 전송
+    await manager.send_chat_notification(room_id, current_user.id, message_data.text, db)
+    
+    return new_message
 
-# 관리자용 채팅방 승인/거부
-@router.put("/rooms/{room_id}/approve", response_model=ChatRoomResponse)
-def approve_chat_room(
-    room_id: int,
-    approval_data: ChatRoomApprovalRequest,
+# 푸시 토큰 등록
+@router.post("/push/register")
+def register_push_token(
+    token_data: PushTokenRegister,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """채팅방 승인/거부 (관리자만)"""
-    
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
-    
-    chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
-    if not chat_room:
-        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
-    
-    if chat_room.is_approved is not None and chat_room.approved_by is not None:
-        raise HTTPException(status_code=400, detail="이미 처리된 채팅방입니다.")
-    
-    # 승인/거부 처리
-    chat_room.is_approved = approval_data.is_approved
-    chat_room.approved_by = current_user.id
-    chat_room.approved_at = datetime.now()
-    
-    if approval_data.is_approved:
-        # 승인된 경우 생성자를 멤버로 추가 (이미 멤버가 아닌 경우)
-        creator = db.query(User).filter(User.id == chat_room.created_by).first()
-        print(f"채팅방 승인: {chat_room.title} (ID: {chat_room.id})")
-        print(f"생성자: {creator.nickname if creator else 'Unknown'} (ID: {chat_room.created_by})")
-        print(f"현재 멤버 수: {len(chat_room.members)}")
-        
-        if creator and creator not in chat_room.members:
-            chat_room.members.append(creator)
-            print(f"생성자를 멤버로 추가: {creator.nickname}")
-        else:
-            print(f"생성자는 이미 멤버입니다: {creator.nickname if creator else 'Unknown'}")
-        
-        print(f"승인 후 멤버 수: {len(chat_room.members)}")
-    else:
-        # 거부된 경우 비활성화
-        chat_room.is_active = False
-        print(f"채팅방 거부: {chat_room.title} (ID: {chat_room.id})")
-    
+    """사용자의 Expo Push 토큰을 등록합니다."""
+    current_user.fcm_token = token_data.expo_push_token
     db.commit()
-    db.refresh(chat_room)
     
-    return ChatRoomResponse(
-        id=chat_room.id,
-        title=chat_room.title,
-        purpose=chat_room.purpose,
-        created_by=chat_room.created_by,
-        created_at=chat_room.created_at,
-        is_active=chat_room.is_active,
-        is_approved=chat_room.is_approved,
-        approved_by=chat_room.approved_by,
-        approved_at=chat_room.approved_at,
-        creator_nickname=chat_room.creator.nickname,
-        member_count=len(chat_room.members),
-        last_message=None,
-        last_message_time=None
-    )
+    return {"message": "푸시 토큰이 등록되었습니다"}
 
-# 관리자용 대기 중인 채팅방 목록 조회
-@router.get("/admin/pending", response_model=List[ChatRoomResponse])
-def get_pending_chat_rooms(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """대기 중인 채팅방 목록 조회 (관리자만)"""
+# WebSocket 엔드포인트
+@router.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: int):
+    # 쿼리 파라미터에서 토큰 가져오기
+    token = websocket.query_params.get("token")
+    """WebSocket 연결을 처리합니다."""
+    # 토큰 검증 (실제 구현에서는 JWT 검증)
+    if not token:
+        await websocket.close(code=4001, reason="토큰이 필요합니다")
+        return
     
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+    await manager.connect(websocket, user_id)
     
-    pending_rooms = db.query(ChatRoom).filter(
-        (ChatRoom.is_approved.is_(None)) | (ChatRoom.is_approved == False)
-    ).order_by(ChatRoom.created_at.desc()).offset(skip).limit(limit).all()
-    
-    return [
-        ChatRoomResponse(
-            id=room.id,
-            title=room.title,
-            purpose=room.purpose,
-            created_by=room.created_by,
-            created_at=room.created_at,
-            is_active=room.is_active,
-            is_approved=room.is_approved,
-            approved_by=room.approved_by,
-            approved_at=room.approved_at,
-            creator_nickname=room.creator.nickname,
-            member_count=len(room.members),
-            last_message=None,
-            last_message_time=None
-        )
-        for room in pending_rooms
-    ] 
+    try:
+        while True:
+            # 메시지 수신
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            # 메시지 타입에 따른 처리
+            if message["type"] == "join":
+                room_id = message["room_id"]
+                db = SessionLocal()
+                try:
+                    # 새로운 Room 모델과 기존 ChatRoom 모델 모두 지원
+                    from app.models.group_chat import Room, Membership
+                    
+                    # 새로운 Room 모델에서 먼저 확인
+                    room = db.query(Room).filter(Room.id == room_id).first()
+                    if room:
+                        # 새로운 Room 모델 사용
+                        membership = db.query(Membership).filter(
+                            Membership.room_id == room_id,
+                            Membership.user_id == user_id
+                        ).first()
+                        
+                        if membership:
+                            # WebSocket 매니저에 참여자 추가
+                            if room_id not in manager.room_participants:
+                                manager.room_participants[room_id] = set()
+                            manager.room_participants[room_id].add(user_id)
+                            
+                            if user_id not in manager.user_rooms:
+                                manager.user_rooms[user_id] = set()
+                            manager.user_rooms[user_id].add(room_id)
+                            
+                            success, msg = True, "채팅방 참여 성공 (새로운 Room 모델)"
+                        else:
+                            success, msg = False, "채팅방 멤버가 아닙니다"
+                    else:
+                        # 기존 ChatRoom 모델 사용
+                        success, msg = await manager.join_room(user_id, room_id, db)
+                finally:
+                    db.close()
+                
+                response = {
+                    "type": "join_response",
+                    "room_id": room_id,
+                    "success": success,
+                    "message": msg
+                }
+                await websocket.send_text(json.dumps(response))
+                
+            elif message["type"] == "leave":
+                room_id = message["room_id"]
+                await manager.leave_room(user_id, room_id)
+                
+                response = {
+                    "type": "leave_response",
+                    "room_id": room_id,
+                    "success": True
+                }
+                await websocket.send_text(json.dumps(response))
+                
+            elif message["type"] == "typing":
+                room_id = message["room_id"]
+                is_typing = message.get("is_typing", False)
+                
+                typing_message = {
+                    "type": "typing",
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "is_typing": is_typing
+                }
+                
+                await manager.broadcast_to_room(
+                    json.dumps(typing_message),
+                    room_id,
+                    exclude_user=user_id
+                )
+                
+            elif message["type"] == "read_receipt":
+                room_id = message["room_id"]
+                message_id = message["message_id"]
+                
+                # 읽음 처리 (실제 구현에서는 DB 업데이트)
+                read_message = {
+                    "type": "read_receipt",
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "message_id": message_id
+                }
+                
+                await manager.broadcast_to_room(
+                    json.dumps(read_message),
+                    room_id
+                )
+                
+            elif message["type"] == "pong":
+                # ping/pong 응답
+                pass
+                
+    except WebSocketDisconnect:
+        manager.disconnect(user_id)
+    except Exception as e:
+        print(f"WebSocket 오류: {e}")
+        manager.disconnect(user_id)

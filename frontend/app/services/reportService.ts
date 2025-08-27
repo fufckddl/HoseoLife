@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://your-server-ip:5000';
+const API_BASE_URL = 'https://camsaw.kro.kr';
 
 export enum ReportType {
   SPAM = "스팸/광고",

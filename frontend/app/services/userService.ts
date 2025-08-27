@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://your-server-ip:5000';
+const API_BASE_URL = "https://camsaw.kro.kr";
 
 export interface UserInfo {
   id: number;
@@ -93,14 +93,14 @@ class UserService {
       console.log('로그인 응답 텍스트:', responseText);
 
       if (!response.ok) {
-        // JSON 파싱 시도
-        try {
-          const errorData = JSON.parse(responseText);
-          throw new Error(errorData.detail || '로그인에 실패했습니다.');
-        } catch (parseError) {
-          console.error('JSON 파싱 실패:', parseError);
-          throw new Error(`로그인 실패 (${response.status}): ${responseText}`);
+        // 상태코드 기반의 안전한 메시지로 치환 (HTML 본문 노출 금지)
+        if (response.status === 401) {
+          throw new Error('이메일 또는 비밀번호가 올바르지 않습니다.');
         }
+        if (response.status >= 500) {
+          throw new Error('서버 오류로 로그인에 실패했습니다. 잠시 후 다시 시도하세요.');
+        }
+        throw new Error('로그인에 실패했습니다.');
       }
 
       // 성공 응답 JSON 파싱
@@ -326,6 +326,52 @@ class UserService {
     }
   }
 
+  // 테스트 알림 전송
+  async sendTestNotification(): Promise<void> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/users/test-notification`, {
+        method: 'POST',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '테스트 알림 전송에 실패했습니다.');
+      }
+
+      const result = await response.json();
+      console.log('테스트 알림 전송 결과:', result);
+    } catch (error) {
+      console.error('테스트 알림 전송 오류:', error);
+      throw error;
+    }
+  }
+
+  // 모든 사용자에게 테스트 알림 전송 (관리자만)
+  async sendTestNotificationToAll(): Promise<void> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/users/test-notification-all`, {
+        method: 'POST',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '전체 테스트 알림 전송에 실패했습니다.');
+      }
+
+      const result = await response.json();
+      console.log('전체 테스트 알림 전송 결과:', result);
+    } catch (error) {
+      console.error('전체 테스트 알림 전송 오류:', error);
+      throw error;
+    }
+  }
+
   // 회원 탈퇴
   async withdraw(): Promise<void> {
     try {
@@ -357,6 +403,31 @@ class UserService {
       console.log('회원 탈퇴 완료');
     } catch (error) {
       console.error('회원 탈퇴 실패:', error);
+      throw error;
+    }
+  }
+
+  // 사용자 목록 조회 (채팅용)
+  async getUsers(skip: number = 0, limit: number = 50, search?: string): Promise<UserInfo[]> {
+    try {
+      const headers = await this.getAuthHeaders();
+      const params = new URLSearchParams();
+      params.append('skip', skip.toString());
+      params.append('limit', limit.toString());
+      if (search) params.append('search', search);
+
+      const response = await fetch(`${API_BASE_URL}/users/list?${params}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('사용자 목록 조회 실패:', error);
       throw error;
     }
   }

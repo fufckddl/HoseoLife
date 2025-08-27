@@ -6,6 +6,7 @@ from app.models.post import Post
 from app.models.user import User
 from app.models.comment import Comment
 from app.models.heart import Heart
+from app.models.scrap import Scrap
 from app.schemas.post import PostCreate, PostResponse, PostUpdate, PostListResponse
 from app.schemas.comment import CommentCreate, CommentResponse
 from app.routers.user import get_current_user
@@ -15,7 +16,13 @@ from datetime import datetime, timezone, timedelta
 import os
 import time
 import json
-from app.services.fcm_service import send_fcm_to_all_users, send_comment_notification
+from app.services.fcm_service import (
+    send_fcm_to_all_users, 
+    send_comment_notification, 
+    send_news_notification, 
+    send_my_post_notification, 
+    send_hot_post_notification
+)
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -36,39 +43,71 @@ def get_posts(
     search: Optional[str] = None,
     after_date: Optional[str] = None,  # 날짜 필터링 파라미터 추가
     include_news_notices: bool = False,  # 뉴스/공지 포함 여부 (기본값: False)
+    board_id: Optional[int] = None,  # 게시판 ID 필터 추가
     db: Session = Depends(get_db)
 ):
+    print(f"게시글 목록 조회 시작 - skip: {skip}, limit: {limit}, category: {category}, building_name: {building_name}, include_news_notices: {include_news_notices}")
+    
     try:
+        # 전체 게시글 수 확인
+        total_posts = db.query(Post).count()
+        print(f"전체 게시글 수: {total_posts}")
+        
+        # 활성 게시글 수 확인
+        active_posts = db.query(Post).filter(Post.is_active == True).count()
+        print(f"활성 게시글 수: {active_posts}")
+        
         query = db.query(Post).filter(Post.is_active == True)
         
         # 뉴스/공지를 포함하지 않는 경우 필터링
         if not include_news_notices:
             query = query.filter(Post.category.notin_(['뉴스', '공지']))
+            filtered_posts = query.count()
+            print(f"뉴스/공지 제외 후 게시글 수: {filtered_posts}")
         
         if category:
             query = query.filter(Post.category == category)
+            print(f"카테고리 필터 적용 후: {query.count()}개")
         
         if building_name:
             query = query.filter(Post.building_name == building_name)
+            print(f"건물명 필터 적용 후: {query.count()}개")
         
         if search:
             # 제목에서 검색어 포함하는 게시글 필터링
             query = query.filter(Post.title.contains(search))
+            print(f"검색어 필터 적용 후: {query.count()}개")
+        
+        # 게시판 ID 필터링 추가
+        if board_id:
+            try:
+                query = query.filter(Post.board_id == board_id)
+                print(f"게시판 ID 필터 적용 후: {query.count()}개")
+            except Exception as e:
+                print(f"board_id 필터링 오류, 필터링 제외: {e}")
+                # board_id 컬럼이 없으면 필터링하지 않음
+                pass
         
         # 날짜 필터링 추가
         if after_date:
             try:
                 after_datetime = datetime.fromisoformat(after_date.replace('Z', '+00:00'))
                 query = query.filter(Post.created_at >= after_datetime)
+                print(f"날짜 필터 적용 후: {query.count()}개")
             except ValueError:
                 # 날짜 파싱 실패 시 필터링하지 않음
+                print(f"날짜 파싱 실패: {after_date}")
                 pass
         
         posts = query.order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
+        print(f"최종 조회된 게시글 수: {len(posts)}")
         
     except Exception as e:
         # 테이블이 존재하지 않거나 다른 데이터베이스 오류 발생 시 빈 리스트 반환
         print(f"게시글 목록 조회 오류: {e}")
+        print(f"오류 타입: {type(e)}")
+        import traceback
+        print(f"오류 상세: {traceback.format_exc()}")
         return []
     
     # 작성자 닉네임 추가
@@ -183,14 +222,24 @@ def create_post(
         # 입력 데이터 검증 및 정리
         title = post.title.strip() if post.title else ""
         content = post.content.strip() if post.content else ""
-        category = post.category.strip() if post.category else ""
+        category = post.category.strip() if post.category else "위치"  # 카테고리가 없으면 "위치"로 설정
         building_name = post.building_name.strip() if post.building_name else ""
         
+        # 위치 정보가 필요한 카테고리들 (일상, 사람, 질문)
+        location_required_categories = ['일상', '사람', '질문']
+        
         # 빈 값 체크
-        if not title or not content or not category or not building_name:
+        if not title or not content:
             raise HTTPException(
                 status_code=400,
-                detail="제목, 내용, 카테고리, 건물명은 필수입니다."
+                detail="제목과 내용은 필수입니다."
+            )
+        
+        # 위치 정보가 필요한 카테고리인 경우 건물명 체크
+        if category in location_required_categories and not building_name:
+            raise HTTPException(
+                status_code=400,
+                detail="일상, 사람, 질문 카테고리는 건물명이 필수입니다."
             )
         
         # 이미지 URL들을 JSON 형태로 저장
@@ -200,16 +249,35 @@ def create_post(
         
         print(f"게시글 생성 시도 - 제목: {title}, 내용: {content[:50]}...")
         
-        db_post = Post(
-            title=title,
-            content=content,
-            category=category,
-            building_name=building_name,
-            building_latitude=post.building_latitude,
-            building_longitude=post.building_longitude,
-            author_id=current_user.id,
-            image_urls=image_urls_json  # 이미지 URL 저장
-        )
+        # board_id가 있으면 사용, 없으면 None으로 설정
+        board_id = post.board_id if hasattr(post, 'board_id') and post.board_id else None
+        
+        try:
+            # board_id 컬럼이 있는 경우
+            db_post = Post(
+                title=title,
+                content=content,
+                category=category,
+                building_name=building_name,
+                building_latitude=post.building_latitude,
+                building_longitude=post.building_longitude,
+                author_id=current_user.id,
+                board_id=board_id,  # 게시판 ID (선택사항)
+                image_urls=image_urls_json  # 이미지 URL 저장
+            )
+        except Exception as board_error:
+            print(f"board_id 컬럼 오류, board_id 없이 생성: {board_error}")
+            # board_id 컬럼이 없는 경우 board_id 없이 생성
+            db_post = Post(
+                title=title,
+                content=content,
+                category=category,
+                building_name=building_name,
+                building_latitude=post.building_latitude,
+                building_longitude=post.building_longitude,
+                author_id=current_user.id,
+                image_urls=image_urls_json  # 이미지 URL 저장
+            )
         
         db.add(db_post)
         db.commit()
@@ -230,7 +298,12 @@ def create_post(
 
     # 뉴스/공지 작성 시 FCM 알림 발송
     if post.category in ['뉴스', '공지']:
-        send_fcm_to_all_users(db, f"[{post.category}] {post.title}", post.content)
+        try:
+            print(f"뉴스/공지 알림 전송 시작: {post.category} - {post.title}")
+            send_news_notification(db, post.title, post.content)
+            print("뉴스/공지 알림 전송 성공")
+        except Exception as e:
+            print(f"뉴스/공지 FCM 알림 발송 실패: {e}")
 
     # 이미지 URL을 다시 파싱
     image_urls = None
@@ -296,18 +369,25 @@ def update_post(
         
         # 이미지 URL을 JSON으로 변환
         if 'image_urls' in update_data:
+            print(f"이미지 URL 업데이트 - 받은 데이터: {update_data['image_urls']}")
             if update_data['image_urls'] and len(update_data['image_urls']) > 0:
                 update_data['image_urls'] = json.dumps(update_data['image_urls'])
+                print(f"이미지 URL JSON 변환 완료: {update_data['image_urls']}")
             else:
                 update_data['image_urls'] = None  # 빈 배열이면 None으로 설정
+                print("이미지 URL을 None으로 설정 (빈 배열)")
         
         # 업데이트 실행
+        print(f"업데이트할 필드들: {list(update_data.keys())}")
         for field, value in update_data.items():
-            if value is not None:  # None이 아닌 값만 업데이트
+            # image_urls는 빈 배열이어도 명시적으로 업데이트
+            if field == 'image_urls' or value is not None:
+                print(f"필드 '{field}' 업데이트: {value}")
                 setattr(post, field, value)
         
         db.commit()
         db.refresh(post)
+        print(f"게시글 업데이트 완료 - 최종 image_urls: {post.image_urls}")
         
     except Exception as e:
         db.rollback()
@@ -452,6 +532,37 @@ def get_my_posts(
     
     return result 
 
+# 내 댓글 목록 조회
+@router.get("/comments/my")
+def get_my_comments(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """내가 작성한 댓글 목록을 조회합니다."""
+    try:
+        # 현재 사용자가 작성한 댓글들을 가져옴
+        comments = db.query(Comment).filter(Comment.author_id == current_user.id).order_by(Comment.created_at.desc()).all()
+        
+        result = []
+        for comment in comments:
+            # 댓글이 달린 게시글 정보도 함께 가져옴
+            post = db.query(Post).filter(Post.id == comment.post_id).first()
+            if post:
+                comment_data = {
+                    "id": comment.id,
+                    "content": comment.content,
+                    "created_at": convert_to_kst(comment.created_at).isoformat(),
+                    "post_id": comment.post_id,
+                    "post_title": post.title,
+                    "post_category": post.category
+                }
+                result.append(comment_data)
+        
+        return result
+    except Exception as e:
+        print(f"내 댓글 목록 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail="내 댓글 목록 조회에 실패했습니다.")
+
 # 이미지 업로드
 @router.post("/upload-image")
 async def upload_image(
@@ -463,6 +574,8 @@ async def upload_image(
     이미지를 S3에 업로드하고 URL을 반환
     """
     try:
+        print(f"이미지 업로드 시작 - 파일명: {file.filename}, 크기: {file.size} bytes")
+        
         # post_id를 정수로 변환
         try:
             post_id_int = int(post_id)
@@ -476,6 +589,13 @@ async def upload_image(
                 status_code=400, 
                 detail="파일 크기는 10MB 이하여야 합니다"
             )
+        
+        # 파일 크기 로깅
+        if file.size:
+            file_size_mb = file.size / (1024 * 1024)
+            print(f"파일 크기: {file_size_mb:.2f}MB")
+            if file_size_mb > 1:
+                print(f"경고: 파일이 1MB를 초과합니다 ({file_size_mb:.2f}MB)")
         
         # 파일 확장자 검증
         allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
@@ -579,11 +699,12 @@ def create_comment(
         if post.author_id != current_user.id:
             try:
                 print(f"댓글 알림 전송 시작: 게시글 작성자 ID={post.author_id}, 댓글 작성자={current_user.nickname}, 게시글 제목='{post.title}'")
-                send_comment_notification(
+                send_my_post_notification(
                     db=db,
                     post_author_id=post.author_id,
-                    commenter_nickname=current_user.nickname,
-                    post_title=post.title
+                    post_title=post.title,
+                    notification_type="comment",
+                    post_id=post.id
                 )
                 print("댓글 알림 전송 성공")
             except Exception as e:
@@ -669,6 +790,34 @@ def toggle_heart(
             post.heart_count += 1
             message = "하트가 추가되었습니다"
             is_hearted = True
+            
+            # 하트 추가 시 게시글 작성자에게 알림 (자신의 게시글에는 알림 안 보내기)
+            if post.author_id != current_user.id:
+                try:
+                    print(f"하트 알림 전송 시작: 게시글 작성자 ID={post.author_id}, 하트 추가자={current_user.nickname}, 게시글 제목='{post.title}'")
+                    send_my_post_notification(
+                        db=db,
+                        post_author_id=post.author_id,
+                        post_title=post.title,
+                        notification_type="heart",
+                        post_id=post.id
+                    )
+                    print("하트 알림 전송 성공")
+                except Exception as e:
+                    print(f"하트 FCM 알림 발송 실패: {e}")
+            
+            # 하트 수가 10개 이상이 되면 핫 게시판 알림
+            if post.heart_count >= 10:
+                try:
+                    print(f"핫 게시판 알림 전송 시작: 게시글 ID={post.id}, 제목='{post.title}', 하트 수={post.heart_count}")
+                    send_hot_post_notification(
+                        db=db,
+                        post_author_id=post.author_id,
+                        post_title=post.title
+                    )
+                    print("핫 게시판 알림 전송 성공")
+                except Exception as e:
+                    print(f"핫 게시판 FCM 알림 발송 실패: {e}")
         
         db.commit()
         
@@ -683,26 +832,177 @@ def toggle_heart(
         print(f"하트 토글 오류: {e}")
         raise HTTPException(status_code=500, detail="하트 토글 중 오류가 발생했습니다")
 
-# 하트 상태 확인
 @router.get("/{post_id}/heart")
 def get_heart_status(
     post_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """현재 사용자의 하트 상태를 확인합니다."""
-    # 게시글 존재 확인
-    post = db.query(Post).filter(Post.id == post_id, Post.is_active == True).first()
-    if not post:
-        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다")
-    
-    # 하트 상태 확인
-    heart = db.query(Heart).filter(
-        Heart.post_id == post_id,
-        Heart.user_id == current_user.id
-    ).first()
-    
-    return {
-        "is_hearted": heart is not None,
-        "heart_count": post.heart_count
-    } 
+    """게시글 하트 상태 확인"""
+    try:
+        # 게시글 존재 확인
+        post = db.query(Post).filter(Post.id == post_id, Post.is_active == True).first()
+        if not post:
+            raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+        
+        # 현재 사용자의 하트 상태 확인
+        heart = db.query(Heart).filter(
+            Heart.user_id == current_user.id,
+            Heart.post_id == post_id
+        ).first()
+        
+        is_hearted = heart is not None
+        
+        return {
+            "is_hearted": is_hearted,
+            "heart_count": post.heart_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"하트 상태 확인 오류: {e}")
+        raise HTTPException(status_code=500, detail="하트 상태 확인에 실패했습니다.")
+
+@router.post("/{post_id}/scrap")
+def toggle_scrap(
+    post_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """게시글 스크랩 토글"""
+    try:
+        # 게시글 존재 확인
+        post = db.query(Post).filter(Post.id == post_id, Post.is_active == True).first()
+        if not post:
+            raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+        
+        # 현재 사용자의 스크랩 상태 확인
+        existing_scrap = db.query(Scrap).filter(
+            Scrap.user_id == current_user.id,
+            Scrap.post_id == post_id
+        ).first()
+        
+        if existing_scrap:
+            # 스크랩 취소
+            db.delete(existing_scrap)
+            # post.scrap_count = max(0, post.scrap_count - 1)  # 임시로 주석 처리
+            is_scrapped = False
+            message = "스크랩이 취소되었습니다."
+        else:
+            # 스크랩 추가
+            new_scrap = Scrap(
+                user_id=current_user.id,
+                post_id=post_id
+            )
+            db.add(new_scrap)
+            # post.scrap_count += 1  # 임시로 주석 처리
+            is_scrapped = True
+            message = "스크랩이 추가되었습니다."
+        
+        db.commit()
+        
+        # 스크랩 수를 직접 계산
+        scrap_count = db.query(Scrap).filter(Scrap.post_id == post_id).count()
+        
+        return {
+            "message": message,
+            "is_scrapped": is_scrapped,
+            "scrap_count": scrap_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"스크랩 토글 오류: {e}")
+        raise HTTPException(status_code=500, detail="스크랩 토글에 실패했습니다.")
+
+@router.get("/{post_id}/scrap")
+def get_scrap_status(
+    post_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """게시글 스크랩 상태 확인"""
+    try:
+        # 게시글 존재 확인
+        post = db.query(Post).filter(Post.id == post_id, Post.is_active == True).first()
+        if not post:
+            raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+        
+        # 현재 사용자의 스크랩 상태 확인
+        scrap = db.query(Scrap).filter(
+            Scrap.user_id == current_user.id,
+            Scrap.post_id == post_id
+        ).first()
+        
+        is_scrapped = scrap is not None
+        
+        # 스크랩 수를 직접 계산
+        scrap_count = db.query(Scrap).filter(Scrap.post_id == post_id).count()
+        
+        return {
+            "is_scrapped": is_scrapped,
+            "scrap_count": scrap_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"스크랩 상태 확인 오류: {e}")
+        raise HTTPException(status_code=500, detail="스크랩 상태 확인에 실패했습니다.")
+
+# 내 스크랩 목록 조회
+@router.get("/my/scraps", response_model=List[PostListResponse])
+def get_my_scraps(
+    skip: int = 0,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """내가 스크랩한 게시글 목록을 조회합니다."""
+    try:
+        print(f"스크랩 목록 조회 시작 - 사용자 ID: {current_user.id}, skip: {skip}, limit: {limit}")
+        
+        # 스크랩한 게시글 ID 목록 조회
+        scraped_post_ids = db.query(Scrap.post_id).filter(
+            Scrap.user_id == current_user.id
+        ).subquery()
+        
+        # 스크랩한 게시글들 조회
+        posts = db.query(Post).filter(
+            Post.id.in_(scraped_post_ids),
+            Post.is_active == True
+        ).order_by(Post.created_at.desc()).offset(skip).limit(limit).all()
+        
+        print(f"스크랩한 게시글 수: {len(posts)}")
+        
+        # 응답 데이터 생성
+        result = []
+        for post in posts:
+            author = db.query(User).filter(User.id == post.author_id).first()
+            post_dict = {
+                "id": post.id,
+                "title": post.title,
+                "category": post.category,
+                "building_name": post.building_name,
+                "building_latitude": post.building_latitude,
+                "building_longitude": post.building_longitude,
+                "author_nickname": author.nickname if author else "알 수 없음",
+                "author_profile_image_url": author.profile_image_url if author else None,
+                "view_count": post.view_count,
+                "heart_count": post.heart_count,
+                "comment_count": post.comment_count,
+                "created_at": convert_to_kst(post.created_at)
+            }
+            result.append(post_dict)
+        
+        return result
+        
+    except Exception as e:
+        print(f"스크랩 목록 조회 오류: {e}")
+        print(f"오류 타입: {type(e)}")
+        import traceback
+        print(f"오류 상세: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="스크랩 목록 조회에 실패했습니다.") 

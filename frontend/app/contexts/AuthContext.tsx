@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userService, UserInfo } from '../services/userService';
 import { reportService } from '../services/reportService';
+import { notificationService } from '../services/notificationService';
+
+
 import * as Notifications from 'expo-notifications';
 
 interface AuthContextType {
@@ -29,11 +32,79 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  try {
+    const context = useContext(AuthContext);
+    if (!context) {
+      console.error('❌ useAuth must be used within an AuthProvider');
+      // 기본값 반환하여 앱 크래시 방지
+      return {
+        isAuthenticated: false,
+        user: null,
+        loading: false,
+        showPenaltyNotification: false,
+        setShowPenaltyNotification: () => {},
+        showSuspensionModal: false,
+        setShowSuspensionModal: () => {},
+        isSuspended: false,
+        notificationsEnabled: false,
+        setNotificationsEnabled: () => {},
+        login: async () => {},
+        logout: async () => {},
+        checkAuthStatus: async () => {},
+        checkUserPenalties: async () => {},
+        markPenaltyNotificationAsShown: async () => {},
+        updateFCMToken: async () => {},
+        getFCMToken: async () => null,
+        toggleNotifications: async () => {},
+        loadNotificationSettings: async () => {},
+      };
+    }
+    
+    // context의 모든 속성이 정의되어 있는지 확인
+    const requiredProps = [
+      'isAuthenticated', 'user', 'loading', 'showPenaltyNotification',
+      'setShowPenaltyNotification', 'showSuspensionModal', 'setShowSuspensionModal',
+      'isSuspended', 'notificationsEnabled', 'setNotificationsEnabled',
+      'login', 'logout', 'checkAuthStatus', 'checkUserPenalties',
+      'markPenaltyNotificationAsShown', 'updateFCMToken', 'getFCMToken',
+      'toggleNotifications', 'loadNotificationSettings'
+    ] as const;
+    
+    for (const prop of requiredProps) {
+      if ((context as any)[prop] === undefined) {
+        console.error(`❌ useAuth: ${prop} is undefined`);
+      }
+    }
+    
+    return context;
+  } catch (error) {
+    console.error('❌ useAuth 오류 발생:', error);
+    if (error instanceof Error) {
+      console.error('❌ 오류 스택:', error.stack);
+    }
+    // 기본값 반환
+    return {
+      isAuthenticated: false,
+      user: null,
+      loading: false,
+      showPenaltyNotification: false,
+      setShowPenaltyNotification: () => {},
+      showSuspensionModal: false,
+      setShowSuspensionModal: () => {},
+      isSuspended: false,
+      notificationsEnabled: false,
+      setNotificationsEnabled: () => {},
+      login: async () => {},
+      logout: async () => {},
+      checkAuthStatus: async () => {},
+      checkUserPenalties: async () => {},
+      markPenaltyNotificationAsShown: async () => {},
+      updateFCMToken: async () => {},
+      getFCMToken: async () => null,
+      toggleNotifications: async () => {},
+      loadNotificationSettings: async () => {},
+    };
   }
-  return context;
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -58,6 +129,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [isAuthenticated, user]);
 
+  // 알림 리스너 설정
+  useEffect(() => {
+    if (isAuthenticated) {
+      try {
+        notificationService.setupNotificationListeners();
+      } catch (error) {
+        console.error('알림 리스너 설정 실패:', error);
+      }
+    }
+  }, [isAuthenticated]);
+
   const checkAuthStatus = async () => {
     try {
       console.log('자동 로그인 상태 확인 중...');
@@ -77,9 +159,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log('토큰이 유효함, 사용자 정보 가져오기');
         const userInfo = await userService.getCurrentUserInfo();
               if (userInfo) {
+        // 사용자 ID 저장
+        await AsyncStorage.setItem('user_id', userInfo.id.toString());
+        
         console.log('자동 로그인 성공:', userInfo.nickname);
         setIsAuthenticated(true);
         setUser(userInfo);
+        
+        // FCM 토큰 발급 및 업데이트
+        try {
+          const fcmToken = await getFCMToken();
+          if (fcmToken) {
+            await updateFCMToken(fcmToken);
+            console.log('FCM 토큰 발급 및 업데이트 완료');
+          } else {
+            console.log('FCM 토큰 발급 실패 또는 권한 없음');
+          }
+        } catch (fcmError) {
+          console.error('FCM 토큰 발급 실패:', fcmError);
+        }
+
+
+        
       } else {
         console.log('사용자 정보 가져오기 실패');
         await logout();
@@ -105,6 +206,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userInfo = await userService.getCurrentUserInfo();
       
       if (userInfo) {
+        // 사용자 ID 저장
+        await AsyncStorage.setItem('user_id', userInfo.id.toString());
+        
         setIsAuthenticated(true);
         setUser(userInfo);
         console.log('로그인 성공:', userInfo.nickname);
@@ -115,10 +219,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (fcmToken) {
             await updateFCMToken(fcmToken);
             console.log('FCM 토큰 발급 및 업데이트 완료');
+          } else {
+            console.log('FCM 토큰 발급 실패 또는 권한 없음');
           }
         } catch (fcmError) {
           console.error('FCM 토큰 발급 실패:', fcmError);
         }
+
+
+        
       } else {
         throw new Error('사용자 정보를 가져올 수 없습니다.');
       }
@@ -131,7 +240,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       console.log('로그아웃 처리 중...');
+      
       await userService.logout();
+      // 사용자 ID도 삭제
+      await AsyncStorage.removeItem('user_id');
+      
       setIsAuthenticated(false);
       setUser(null);
       setShowPenaltyNotification(false);
@@ -237,70 +350,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const getFCMToken = async (): Promise<string | null> => {
     try {
-      // 알림 권한 요청
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      
-      if (finalStatus !== 'granted') {
-        console.log('알림 권한이 거부되었습니다.');
+      // 인증 상태 확인
+      if (!isAuthenticated || !user) {
+        console.log('인증되지 않은 상태, FCM 토큰 발급 건너뜀');
         return null;
       }
-
-      // Expo Push Token 발급
-      const expoToken = await Notifications.getExpoPushTokenAsync({
-        projectId: 'b046f9bf-ef7a-4bd4-a9d0-74602416e381', // Expo 프로젝트 ID
-      });
       
-      console.log('Expo Push Token 발급 성공:', expoToken.data);
-      
-      // Expo Push Token을 FCM 토큰으로 변환
-      const fcmToken = await convertExpoTokenToFCM(expoToken.data);
-      
-      if (fcmToken) {
-        console.log('FCM 토큰 변환 성공:', fcmToken);
-        return fcmToken;
-      } else {
-        console.log('FCM 토큰 변환 실패, Expo Push Token 사용');
-        return expoToken.data;
-      }
+      return await notificationService.getFCMToken();
     } catch (error) {
       console.error('FCM 토큰 발급 실패:', error);
       return null;
     }
   };
 
-  const convertExpoTokenToFCM = async (expoToken: string): Promise<string | null> => {
-    try {
-      // Expo 서버를 통해 FCM 토큰으로 변환
-      const response = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          to: expoToken,
-          title: '토큰 변환 테스트',
-          body: 'FCM 토큰 변환을 위한 테스트 메시지',
-        }),
-      });
 
-      if (response.ok) {
-        // Expo Push Token을 그대로 사용 (FCM 토큰으로 자동 변환됨)
-        return expoToken;
-      } else {
-        console.log('Expo 토큰 변환 실패, 원본 토큰 사용');
-        return expoToken;
-      }
-    } catch (error) {
-      console.error('토큰 변환 중 오류:', error);
-      return expoToken; // 실패 시 원본 토큰 사용
-    }
-  };
 
   const toggleNotifications = async (enabled: boolean) => {
     try {
@@ -347,6 +410,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     toggleNotifications,
     loadNotificationSettings,
   };
+
+  // value 객체의 모든 속성이 정의되어 있는지 확인
+  console.log('🔧 AuthProvider value 생성:', {
+    isAuthenticated: value.isAuthenticated,
+    user: value.user ? 'defined' : 'null',
+    loading: value.loading,
+    login: typeof value.login,
+    logout: typeof value.logout,
+    updateFCMToken: typeof value.updateFCMToken,
+    getFCMToken: typeof value.getFCMToken,
+  });
 
   return (
     <AuthContext.Provider value={value}>

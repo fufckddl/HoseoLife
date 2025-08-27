@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { contactService, ContactData } from '../../services/contactService';
 
@@ -119,7 +120,7 @@ export default function AdminContactDetailScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2D3A4A" />
+          <ActivityIndicator size="large" color="#000000" />
           <Text style={styles.loadingText}>문의 상세를 불러오는 중...</Text>
         </View>
       </SafeAreaView>
@@ -141,7 +142,7 @@ export default function AdminContactDetailScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.title}>문의 상세</Text>
         <View style={styles.placeholder} />
@@ -291,24 +292,21 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2D3A4A',
+    justifyContent: 'space-between',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 20,
     paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
   backButton: {
     padding: 8,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
+
   title: {
-    flex: 1,
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
-    textAlign: 'center',
+    color: '#000000',
     fontFamily: 'GmarketSans',
   },
   placeholder: {
@@ -466,7 +464,7 @@ const styles = StyleSheet.create({
   statusChangeLabel: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#2D3A4A',
+    color: '#000000',
     marginBottom: 8,
     fontFamily: 'GmarketSans',
   },
@@ -484,8 +482,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   statusButtonActive: {
-    backgroundColor: '#2D3A4A',
-    borderColor: '#2D3A4A',
+    backgroundColor: '#000000',
+    borderColor: '#000000',
   },
   statusButtonText: {
     fontSize: 14,
@@ -502,7 +500,7 @@ const styles = StyleSheet.create({
   replyLabel: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#2D3A4A',
+    color: '#000000',
     marginBottom: 8,
     fontFamily: 'GmarketSans',
   },
@@ -517,7 +515,7 @@ const styles = StyleSheet.create({
     fontFamily: 'GmarketSans',
   },
   submitButton: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',

@@ -11,6 +11,7 @@ import {
   RefreshControl,
   ActivityIndicator
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { contactService, ContactData } from '../services/contactService';
 
@@ -77,7 +78,7 @@ export default function MyContactsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2D3A4A" />
+          <ActivityIndicator size="large" color="#000000" />
           <Text style={styles.loadingText}>문의 목록을 불러오는 중...</Text>
         </View>
       </SafeAreaView>
@@ -89,7 +90,7 @@ export default function MyContactsScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.title}>내 문의 목록</Text>
         <View style={styles.placeholder} />
@@ -198,23 +199,18 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 20,
     paddingVertical: 15,
   },
   backButton: {
     padding: 8,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
   title: {
     flex: 1,
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000',
     textAlign: 'center',
     fontFamily: 'GmarketSans',
   },
@@ -234,7 +230,7 @@ const styles = StyleSheet.create({
   statNumber: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#2D3A4A',
+    color: '#000000',
     fontFamily: 'GmarketSans',
   },
   statLabel: {
@@ -260,7 +256,7 @@ const styles = StyleSheet.create({
     fontFamily: 'GmarketSans',
   },
   writeButton: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,

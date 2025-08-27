@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { postService, PostListResponse } from '../services/postService';
 import { clusterMarkers, PostMarker, Cluster } from '../utils/clustering';
 import { CustomMarker, ClusterMarker } from '../components/CustomMarker';
@@ -160,7 +161,7 @@ export default function HomeScreen() {
       
       console.log('API 호출 날짜 파라미터:', afterDate);
       
-      const postsData = await postService.getPosts(0, 100, undefined, undefined, undefined, afterDate, false); // 오늘 06:00 이후 게시글만 가져오기 (공지/뉴스 제외)
+      const postsData = await postService.getPosts(0, 100, undefined, undefined, undefined, undefined, false); // 날짜 필터링 제거하여 모든 게시글 가져오기 (공지/뉴스 제외)
       console.log('새로 가져온 게시글 수:', postsData.length);
       setPosts(postsData);
     } catch (error) {
@@ -308,20 +309,20 @@ export default function HomeScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         {/* 왼쪽: 로고 */}
-        <View style={{ width: 60, height: 50, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 10 }}>
-          <Image source={require('../../assets/images/camsaw_small_logo.png')} style={[styles.topLogo, { alignSelf: 'flex-end' }]} />
+        <View style={styles.logoContainer}>
+          <Ionicons name="school" size={30} color="#000000" />
         </View>
         {/* 가운데: 타이틀 */}
-        <View style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center', height: 50, marginBottom: 10, marginLeft: 20 }}>
+        <View style={styles.titleContainer}>
           
         </View>
         {/* 오른쪽: 알림+검색 */}
-        <View style={{ width: 100, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end', height: 50, marginBottom: 3 }}>
-          <TouchableOpacity style={[styles.topIcon, { alignSelf: 'flex-end' }]} onPress={() => router.push('/pages/notifications')}> 
-            <Image source={require('../../assets/images/camsaw_notify.png')} style={{ width: 45, height: 45, resizeMode: 'contain' }} />
+        <View style={styles.topIconsContainer}>
+          <TouchableOpacity style={styles.topIcon} onPress={() => router.push('/pages/notifications')}> 
+            <Ionicons name="notifications" size={30} color="#000000" />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.topIcon, { alignSelf: 'flex-end' }]} onPress={() => router.push('/pages/search')}> 
-            <Image source={require('../../assets/images/camsaw_search.png')} style={{ width: 45, height: 45, resizeMode: 'contain' }} />
+          <TouchableOpacity style={styles.topIcon} onPress={() => router.push('/pages/search')}> 
+            <Ionicons name="search" size={30} color="#000000" />
           </TouchableOpacity>
         </View>
       </View>
@@ -380,19 +381,19 @@ export default function HomeScreen() {
       
       {/* 플로팅 액션 버튼 */}
       <TouchableOpacity style={styles.floatingButton} onPress={() => router.push('/pages/create-post')}>
-        <Image source={require('../../assets/images/camsaw_create_post.png')} style={styles.floatingButtonIcon} />
+        <Ionicons name="add" size={24} color="#000000" />
       </TouchableOpacity>
       
       {/* 하단 바 */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/pages/posts')}>
-          <Image source={require('../../assets/images/camsaw_post.png')} style={styles.bottomIconImg} />
+        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/post-list')}>
+          <Ionicons name="list" size={30} color="#000000" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.bottomIcon}>
-          <Image source={require('../../assets/images/camsaw_home.png')} style={styles.bottomIconImg} />
+          <Ionicons name="home" size={30} color="#000000" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/profile')}>
-          <Image source={require('../../assets/images/camsaw_human.png')} style={styles.bottomIconImg} />
+          <Ionicons name="person" size={30} color="#000000" />
         </TouchableOpacity>
       </View>
 
@@ -409,38 +410,67 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#2D3A4A' },
+  container: { flex: 1, backgroundColor: '#ffffff' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   topBar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    backgroundColor: '#2D3A4A',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 20,
+    paddingVertical: 10,
   },
-  topLogo: { width: 40, height: 40, resizeMode: 'contain' },
+  logoContainer: {
+    width: 60,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  titleContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 50,
+    marginLeft: 20,
+  },
+  topIconsContainer: {
+    width: 100,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    height: 50,
+  },
+  topLogo: { width: 40, height: 40 },
   topTitle: {
     fontSize: 27,
     fontWeight: 'bold',
     color: '#ffffff',
     textAlign: 'center',
     marginBottom: 2,
-    fontFamily: 'GmarketSans', // 이 줄 추가!
+    fontFamily: 'GmarketSans',
   },
-  topIcon: { marginLeft: 18 },
-  iconImg: { width: 28, height: 28, resizeMode: 'contain' },
+  topIcon: { 
+    marginLeft: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   map: { 
-    flex: 1
+    flex: 1,
+    borderRadius: 20,
   },
   bottomBar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    backgroundColor: '#2D3A4A',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 20,
-    paddingTop: 5,
+    paddingVertical: 10,
     justifyContent: 'space-between',
   },
-  bottomIcon: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  bottomIconImg: { width: 45, height: 45, resizeMode: 'contain' },
+  bottomIcon: { 
+    flex: 1, 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    paddingVertical: 5,
+  },
   floatingButton: {
     position: 'absolute',
     bottom: 100,
@@ -448,7 +478,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 30,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -456,11 +486,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-  },
-  floatingButtonIcon: {
-    width: 28,
-    height: 28,
-    resizeMode: 'contain',
-    tintColor: '#ffffff',
   },
 }); 

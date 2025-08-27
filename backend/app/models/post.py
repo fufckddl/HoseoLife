@@ -9,7 +9,7 @@ class Post(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)  # 제목
     content = Column(Text, nullable=False)  # 내용
-    category = Column(String(20), nullable=False)  # 카테고리 (일상, 사람, 질문, 행사)
+    category = Column(String(20), nullable=True)  # 카테고리 (일상, 사람, 질문, 행사, 위치)
     building_name = Column(String(100), nullable=True)  # 건물명
     building_latitude = Column(String(20), nullable=True)  # 건물 위도
     building_longitude = Column(String(20), nullable=True)  # 건물 경도
@@ -18,11 +18,18 @@ class Post(Base):
     author_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     author = relationship("User", back_populates="posts")
     
+    # 게시판 정보 (외래키)
+    board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=True)
+    board = relationship("Board", back_populates="posts")
+    
     # 댓글 관계
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     
     # 좋아요 관계
     hearts = relationship("Heart", back_populates="post", cascade="all, delete-orphan")
+    
+    # 스크랩 관계
+    scraps = relationship("Scrap", back_populates="post", cascade="all, delete-orphan")
     
     # 조회 기록 관계
     view_logs = relationship("ViewLog", back_populates="post", cascade="all, delete-orphan")
@@ -37,6 +44,7 @@ class Post(Base):
     view_count = Column(Integer, default=0)  # 조회수
     heart_count = Column(Integer, default=0)  # 좋아요 수
     comment_count = Column(Integer, default=0)  # 댓글 수
+    # scrap_count = Column(Integer, default=0)  # 스크랩 수 - 임시로 주석 처리
     
     # 시간 정보
     created_at = Column(DateTime(timezone=True), server_default=func.now())

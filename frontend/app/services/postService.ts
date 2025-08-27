@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://your-server-ip:5000';
+const API_BASE_URL = 'https://camsaw.kro.kr';
 
 export interface PostCreateData {
   title: string;
@@ -69,6 +69,17 @@ export interface HeartResponse {
 export interface HeartStatus {
   is_hearted: boolean;
   heart_count: number;
+}
+
+export interface ScrapResponse {
+  message: string;
+  is_scrapped: boolean;
+  scrap_count: number;
+}
+
+export interface ScrapStatus {
+  is_scrapped: boolean;
+  scrap_count: number;
 }
 
 class PostService {
@@ -154,7 +165,7 @@ class PostService {
   }
 
   // 게시글 목록 조회
-  async getPosts(skip: number = 0, limit: number = 20, category?: string, building_name?: string, search?: string, after_date?: string, include_news_notices: boolean = false): Promise<PostListResponse[]> {
+  async getPosts(skip: number = 0, limit: number = 20, category?: string, building_name?: string, search?: string, after_date?: string, include_news_notices: boolean = false, board_id?: number): Promise<PostListResponse[]> {
     try {
       const headers = await this.getAuthHeaders();
       
@@ -164,6 +175,7 @@ class PostService {
       if (search) url += `&search=${encodeURIComponent(search)}`;
       if (after_date) url += `&after_date=${encodeURIComponent(after_date)}`;
       if (include_news_notices) url += `&include_news_notices=true`;
+      if (board_id) url += `&board_id=${board_id}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -358,7 +370,7 @@ class PostService {
     try {
       const headers = await this.getAuthHeaders();
       
-      const response = await fetch(`${API_BASE_URL}/comments/${commentId}`, {
+      const response = await fetch(`${API_BASE_URL}/posts/comments/${commentId}`, {
         method: 'DELETE',
         headers,
       });
@@ -413,6 +425,100 @@ class PostService {
       return await response.json();
     } catch (error) {
       console.error('하트 상태 확인 오류:', error);
+      throw error;
+    }
+  }
+
+  // 스크랩 토글
+  async toggleScrap(postId: number): Promise<ScrapResponse> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/posts/${postId}/scrap`, {
+        method: 'POST',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '스크랩 토글에 실패했습니다.');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('스크랩 토글 오류:', error);
+      throw error;
+    }
+  }
+
+  // 스크랩 상태 확인
+  async getScrapStatus(postId: number): Promise<ScrapStatus> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/posts/${postId}/scrap`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '스크랩 상태 확인에 실패했습니다.');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('스크랩 상태 확인 오류:', error);
+      throw error;
+    }
+  }
+
+  // 내 스크랩 목록 조회
+  async getMyScraps(skip: number = 0, limit: number = 20): Promise<PostListResponse[]> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/posts/my/scraps?skip=${skip}&limit=${limit}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '스크랩 목록 조회에 실패했습니다.');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('스크랩 목록 조회 오류:', error);
+      throw error;
+    }
+  }
+
+  // 내 댓글 목록 조회
+  async getMyComments(): Promise<any[]> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/posts/comments/my`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        let errorMessage = '내 댓글 목록 조회에 실패했습니다.';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorMessage;
+        } catch (e) {
+          console.error('에러 응답 파싱 실패:', e);
+        }
+        throw new Error(errorMessage);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('내 댓글 목록 조회 오류:', error);
       throw error;
     }
   }

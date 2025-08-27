@@ -11,6 +11,7 @@ import {
   RefreshControl,
   TextInput
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { contactService, ContactData, ContactStats } from '../../services/contactService';
 
@@ -92,7 +93,7 @@ export default function ContactManagementScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.title}>문의 관리</Text>
         <View style={styles.placeholder} />
@@ -211,28 +212,25 @@ export default function ContactManagementScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#FFFFFF',
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 20,
     paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
   backButton: {
     padding: 8,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000',
     fontFamily: 'GmarketSans',
   },
   placeholder: {
@@ -286,7 +284,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   filterButtonActive: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
   },
   filterText: {
     fontSize: 14,

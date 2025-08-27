@@ -6,7 +6,7 @@ from datetime import datetime
 class PostBase(BaseModel):
     title: str
     content: str
-    category: str  # 일상, 사람, 질문, 행사
+    category: Optional[str] = None  # 위치 기반 게시글의 경우 None
     building_name: Optional[str] = None
     building_latitude: Optional[str] = None
     building_longitude: Optional[str] = None
@@ -14,6 +14,7 @@ class PostBase(BaseModel):
 # 게시글 생성용
 class PostCreate(PostBase):
     image_urls: Optional[List[str]] = None
+    board_id: Optional[int] = None  # 게시판 ID (선택사항)
 
 # 게시글 업데이트용
 class PostUpdate(BaseModel):

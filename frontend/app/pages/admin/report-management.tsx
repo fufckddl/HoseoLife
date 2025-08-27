@@ -12,6 +12,7 @@ import {
   TextInput,
   ActivityIndicator
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { reportService, ReportListData, ReportStats } from '../../services/reportService';
 
@@ -112,7 +113,7 @@ export default function ReportManagementScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2D3A4A" />
+          <ActivityIndicator size="large" color="#000000" />
           <Text style={styles.loadingText}>신고 목록을 불러오는 중...</Text>
         </View>
       </SafeAreaView>
@@ -124,7 +125,7 @@ export default function ReportManagementScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.title}>신고 관리</Text>
         <View style={styles.placeholder} />
@@ -246,7 +247,7 @@ export default function ReportManagementScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#FFFFFF',
   },
   loadingContainer: {
     flex: 1,
@@ -263,22 +264,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 20,
     paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
   backButton: {
     padding: 8,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000',
     fontFamily: 'GmarketSans',
   },
   placeholder: {
@@ -332,7 +330,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   filterButtonActive: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
   },
   filterText: {
     fontSize: 14,

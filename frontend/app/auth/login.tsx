@@ -30,7 +30,8 @@ export default function LoginScreen() {
         { text: '확인', onPress: () => router.push('/tabs/home') }
       ]);
     } catch (error: any) {
-      Alert.alert('로그인 실패', error?.message || '오류가 발생했습니다.');
+      // 민감한 서버/HTML 응답 숨김, 사용자에게는 단일 문구만 표시
+      Alert.alert('로그인 실패', '로그인에 실패했습니다.');
     } finally {
       setLoading(false);
     }

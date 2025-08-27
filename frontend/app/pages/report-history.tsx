@@ -11,6 +11,7 @@ import {
   RefreshControl,
   ActivityIndicator
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { reportService, ReportListData, UserPenaltyData } from '../services/reportService';
 
@@ -108,7 +109,7 @@ export default function ReportHistoryScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2D3A4A" />
+          <ActivityIndicator size="large" color="#000000" />
           <Text style={styles.loadingText}>데이터를 불러오는 중...</Text>
         </View>
       </SafeAreaView>
@@ -120,7 +121,7 @@ export default function ReportHistoryScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.title}>신고내역</Text>
         <View style={styles.placeholder} />
@@ -141,7 +142,7 @@ export default function ReportHistoryScreen() {
           onPress={() => setActiveTab('penalties')}
         >
           <Text style={[styles.tabText, activeTab === 'penalties' && styles.tabTextActive]}>
-            받은 처벌 ({penalties.length})
+            받은 제재({penalties.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -224,7 +225,6 @@ export default function ReportHistoryScreen() {
                       </Text>
                     </View>
                   )}
-                  
                   {penalty.penalty_type === '영구정지' && (
                     <Text style={styles.permanentBanWarning}>
                       ⚠️ 영구 정지로 인해 계정이 제한되었습니다.
@@ -236,7 +236,7 @@ export default function ReportHistoryScreen() {
             
             {penalties.length === 0 && (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>받은 처벌이 없습니다.</Text>
+                <Text style={styles.emptyText}>받은 제재 내역이 없습니다.</Text>
               </View>
             )}
           </>
@@ -249,7 +249,7 @@ export default function ReportHistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
   },
   loadingContainer: {
     flex: 1,
@@ -266,22 +266,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 20,
     paddingVertical: 15,
   },
   backButton: {
     padding: 8,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000',
     fontFamily: 'GmarketSans',
   },
   placeholder: {
@@ -301,7 +296,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   tabButtonActive: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
   },
   tabText: {
     fontSize: 14,

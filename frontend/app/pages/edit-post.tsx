@@ -8,8 +8,10 @@ import {
   Image,
   ScrollView,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  BackHandler
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -17,7 +19,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { postService } from '../services/postService';
 import { userService } from '../services/userService';
 
-const API_BASE_URL = 'http://your-server-ip:5000';
+const API_BASE_URL = 'https://camsaw.kro.kr';
 
 export default function EditPostScreen() {
   const router = useRouter();
@@ -32,6 +34,7 @@ export default function EditPostScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [postData, setPostData] = useState<any>(null);
+  const [completed, setCompleted] = useState(false);
 
   const categories = ['일상', '사람', '질문', '행사'];
 
@@ -64,7 +67,25 @@ export default function EditPostScreen() {
     }
   };
 
-  const handleBack = () => { router.back(); };
+  const handleBack = () => {
+    if (completed) {
+      router.replace('/tabs/home');
+      return;
+    }
+    router.back();
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (completed) {
+        router.replace('/tabs/home');
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [completed]);
 
   const pickImages = async () => {
     try {
@@ -92,13 +113,14 @@ export default function EditPostScreen() {
 
       console.log('이미지 선택기 실행 중...');
       
-      // expo-image-picker로 이미지 선택
+      // expo-image-picker로 이미지 선택 (한 번에 최대 10개까지)
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         selectionLimit: remainingSlots,
-        quality: 0.8,
+        quality: 0.2, // 20% 압축률
         aspect: [4, 3],
+        allowsEditing: false, // 편집 비활성화로 빠른 선택 가능
       });
 
       console.log('=== 이미지 선택 결과 ===');
@@ -111,6 +133,12 @@ export default function EditPostScreen() {
         console.log('새로 추가할 이미지들:', newImages);
         setSelectedImages(prev => [...prev, ...newImages]);
         console.log('이미지 상태 업데이트 완료');
+        
+        // 선택 완료 알림
+        Alert.alert(
+          '이미지 선택 완료', 
+          `${result.assets.length}개의 이미지가 추가되었습니다. (총 ${existingImages.length + selectedImages.length + result.assets.length}/10개)`
+        );
       } else {
         console.log('이미지 선택 취소됨 또는 선택된 이미지 없음');
       }
@@ -128,7 +156,11 @@ export default function EditPostScreen() {
 
   const removeExistingImage = (index: number) => {
     console.log('기존 이미지 제거:', index);
-    setExistingImages(prev => prev.filter((_, i) => i !== index));
+    setExistingImages(prev => {
+      const newImages = prev.filter((_, i) => i !== index);
+      console.log('기존 이미지 제거 후 남은 이미지들:', newImages);
+      return newImages;
+    });
   };
 
   const removeSelectedImage = (index: number) => {
@@ -176,7 +208,10 @@ export default function EditPostScreen() {
       }
 
       // 1. 새로 선택된 이미지 업로드
-      const uploadedImageUrls = [...existingImages]; // 기존 이미지 유지
+      const uploadedImageUrls = [...existingImages]; // 현재 남아있는 기존 이미지만 유지
+      console.log('현재 남아있는 기존 이미지:', existingImages);
+      console.log('새로 선택된 이미지:', selectedImages);
+      console.log('최종 업로드할 이미지 URL들:', uploadedImageUrls);
       
       if (selectedImages.length > 0) {
         console.log('새 이미지 업로드 시작:', selectedImages.length, '개');
@@ -185,29 +220,55 @@ export default function EditPostScreen() {
           const imageUri = selectedImages[i];
           console.log(`이미지 ${i + 1}/${selectedImages.length} 업로드 중...`);
           
-          const formData = new FormData();
-          formData.append('file', {
-            uri: imageUri,
-            type: 'image/jpeg',
-            name: 'image.jpg'
-          } as any);
-          formData.append('post_id', postId);
+          try {
+            // 이미지 파일 정보 확인
+            const fileInfo = await fetch(imageUri);
+            const fileSize = fileInfo.headers.get('content-length');
+            const fileSizeMB = fileSize ? parseInt(fileSize) / (1024 * 1024) : 0;
+            
+            console.log(`이미지 ${i + 1} 크기: ${fileSizeMB.toFixed(2)}MB`);
+            
+            // 파일 크기 경고 (1MB 초과 시)
+            if (fileSizeMB > 1) {
+              console.warn(`이미지 ${i + 1}이 1MB를 초과합니다: ${fileSizeMB.toFixed(2)}MB`);
+            }
+            
+            const formData = new FormData();
+            formData.append('file', {
+              uri: imageUri,
+              type: 'image/jpeg',
+              name: 'image.jpg'
+            } as any);
+            formData.append('post_id', postId);
 
-          const imageResponse = await fetch(`${API_BASE_URL}/posts/upload-image`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            },
-            body: formData
-          });
+            const imageResponse = await fetch(`${API_BASE_URL}/posts/upload-image`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'multipart/form-data'
+              },
+              body: formData
+            });
 
-          if (imageResponse.ok) {
-            const imageResult = await imageResponse.json();
-            uploadedImageUrls.push(imageResult.image_url);
-            console.log(`이미지 ${i + 1} 업로드 성공:`, imageResult.image_url);
-          } else {
-            const errorText = await imageResponse.text();
-            console.error(`이미지 ${i + 1} 업로드 실패:`, errorText);
+            if (imageResponse.ok) {
+              const imageResult = await imageResponse.json();
+              uploadedImageUrls.push(imageResult.image_url);
+              console.log(`이미지 ${i + 1} 업로드 성공:`, imageResult.image_url);
+            } else {
+              const errorText = await imageResponse.text();
+              console.error(`이미지 ${i + 1} 업로드 실패:`, errorText);
+              
+              // 413 에러 (파일 크기 초과)인 경우 사용자에게 알림
+              if (imageResponse.status === 413) {
+                Alert.alert(
+                  '이미지 크기 초과', 
+                  `이미지 ${i + 1}이 너무 큽니다. 더 작은 이미지를 선택해주세요.`,
+                  [{ text: '확인' }]
+                );
+              }
+            }
+          } catch (uploadError) {
+            console.error(`이미지 ${i + 1} 업로드 중 네트워크 오류:`, uploadError);
           }
         }
       }
@@ -220,8 +281,11 @@ export default function EditPostScreen() {
         building_name: postData?.building_name || '', // 기존 building_name 유지
         building_latitude: postData?.building_latitude || '', // 기존 building_latitude 유지
         building_longitude: postData?.building_longitude || '', // 기존 building_longitude 유지
-        image_urls: uploadedImageUrls.length > 0 ? uploadedImageUrls : undefined
+        image_urls: uploadedImageUrls // 항상 image_urls 포함 (빈 배열이어도)
       };
+      
+      console.log('게시글 업데이트 데이터:', updateData);
+      console.log('전송할 이미지 URL들:', updateData.image_urls);
 
       const updateResponse = await fetch(`${API_BASE_URL}/posts/${postId}`, {
         method: 'PUT',
@@ -233,12 +297,13 @@ export default function EditPostScreen() {
       });
 
       if (updateResponse.ok) {
+        setCompleted(true);
         Alert.alert('성공', '게시글이 수정되었습니다!', [
           {
             text: '확인',
             onPress: () => {
-              router.back();
-              // post-detail 페이지로 돌아가면 자동으로 새로고침됨
+              // 수정 완료 후 목록으로 이동하고 스택을 정리
+              router.replace('/tabs/home');
             }
           }
         ]);
@@ -279,7 +344,7 @@ export default function EditPostScreen() {
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Text style={styles.backIcon}>←</Text>
+          <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.topBarTitle}>게시글 수정</Text>
         <View style={styles.placeholder} />
@@ -287,26 +352,7 @@ export default function EditPostScreen() {
 
       {/* 메인 콘텐츠 */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* 카테고리 선택 */}
-        <View style={styles.categorySection}>
-          {categories.map((category) => (
-            <TouchableOpacity
-              key={category}
-              style={[
-                styles.categoryButton,
-                selectedCategory === category && styles.categoryButtonSelected
-              ]}
-              onPress={() => setSelectedCategory(category)}
-            >
-              <Text style={[
-                styles.categoryText,
-                selectedCategory === category && styles.categoryTextSelected
-              ]}>
-                {category}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+
 
         {/* 제목 입력 */}
         <View style={styles.inputSection}>
@@ -362,11 +408,12 @@ export default function EditPostScreen() {
             onPress={pickImages}
             disabled={(existingImages.length + selectedImages.length) >= 10}
           >
+            <Ionicons name="camera" size={24} color="#000000" />
             <Text style={[
               styles.addPhotoText,
               (existingImages.length + selectedImages.length) >= 10 && styles.addPhotoTextDisabled
             ]}>
-              + 사진 추가 ({(existingImages.length + selectedImages.length)}/10)
+              사진 추가 ({(existingImages.length + selectedImages.length)}/10)
             </Text>
           </TouchableOpacity>
           
@@ -415,10 +462,10 @@ export default function EditPostScreen() {
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#2D3A4A' 
+    backgroundColor: '#ffffff' 
   },
   topNotch: {
-    backgroundColor: '#2D3A4A', // 상단 노치 색상
+    backgroundColor: '#ffffff', // 상단 노치 색상
   },
   bottomNotch: {
     backgroundColor: '#FFFFFF', // 하단 노치 색상
@@ -436,23 +483,18 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
   backButton: {
     padding: 5,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#ffffff',
-    fontWeight: '600',
-  },
   topBarTitle: {
     flex: 1,
     textAlign: 'center',
     fontSize: 18,
-    color: '#ffffff',
+    color: '#000000',
     fontWeight: '600',
     fontFamily: 'GmarketSans',
   },
@@ -464,31 +506,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     padding: 20,
   },
-  categorySection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  categoryButton: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 20,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-  categoryButtonSelected: {
-    backgroundColor: '#2D3A4A',
-  },
-  categoryText: {
-    fontSize: 14,
-    color: '#000000',
-    fontFamily: 'GmarketSans',
-  },
-  categoryTextSelected: {
-    color: '#ffffff',
-  },
+
   inputSection: {
     marginBottom: 20,
   },
@@ -522,21 +540,25 @@ const styles = StyleSheet.create({
     fontFamily: 'GmarketSans',
   },
   addPhotoButton: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 40,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#E0E0E0',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    paddingVertical: 20,
     backgroundColor: '#ffffff',
   },
   addPhotoButtonDisabled: {
     opacity: 0.5,
   },
   addPhotoText: {
+    marginLeft: 8,
     fontSize: 16,
     color: '#000000',
     fontFamily: 'GmarketSans',
+    fontWeight: '500',
   },
   addPhotoTextDisabled: {
     color: '#999999',
@@ -576,7 +598,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   submitButton: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
     borderRadius: 8,
     paddingVertical: 15,
     alignItems: 'center',

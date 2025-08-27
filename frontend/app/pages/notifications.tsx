@@ -9,8 +9,11 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { userService } from '../services/userService';
 
 type TabType = 'news' | 'notices';
 
@@ -27,32 +30,45 @@ interface PostItem {
   image_urls?: string[];
 }
 
-const API_BASE_URL = 'http://your-server-ip:5000';
+const API_BASE_URL = 'https://camsaw.kro.kr';
 
 export default function NotificationsScreen() {
-  const navigation = useNavigation();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabType>('news');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [userInfoStr, setUserInfoStr] = useState<string | null>(null);
   const [newsItems, setNewsItems] = useState<PostItem[]>([]);
   const [noticeItems, setNoticeItems] = useState<PostItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    const fetchIsAdmin = async () => {
+    const fetchUserInfo = async () => {
       try {
-        const str = await AsyncStorage.getItem('userInfo');
-        setUserInfoStr(str);
-        if (str) {
-          const userInfo = JSON.parse(str);
-          setIsAdmin(userInfo.is_admin === 1 || userInfo.is_admin === true);
+        const userInfo = await userService.getCurrentUserInfo();
+        if (userInfo) {
+          // 관리자 권한 확인
+          const isUserAdmin = Boolean(userInfo.is_admin);
+          setIsAdmin(isUserAdmin);
+          console.log('관리자 권한 확인:', isUserAdmin, userInfo.is_admin, userInfo);
+        } else {
+          setIsAdmin(false);
+          console.log('사용자 정보 없음');
         }
-      } catch (e) {
+      } catch (error) {
+        console.error('사용자 정보 가져오기 실패:', error);
         setIsAdmin(false);
       }
     };
-    fetchIsAdmin();
+    
+    fetchUserInfo();
   }, []);
+
+  // 화면이 포커스될 때마다 데이터 새로고침
+  useFocusEffect(
+    React.useCallback(() => {
+      setRefreshKey(prev => prev + 1);
+    }, [])
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -83,7 +99,7 @@ export default function NotificationsScreen() {
         })
         .finally(() => setLoading(false));
     }
-  }, [activeTab]);
+  }, [activeTab, refreshKey]);
 
   const handleTabPress = (tab: TabType) => {
     setActiveTab(tab);
@@ -91,18 +107,18 @@ export default function NotificationsScreen() {
 
   const handleWritePress = () => {
     if (activeTab === 'news') {
-      (navigation as any).navigate('CreatePost', { category: '뉴스' });
-    } else {
-      (navigation as any).navigate('CreatePost', { category: '공지' });
+      router.push('/pages/create-news');
+    } else if (activeTab === 'notices') {
+      router.push('/pages/create-notice');
     }
   };
 
   const handleNewsPress = (item: PostItem) => {
-    (navigation as any).navigate('PostDetail', { postId: item.id.toString() });
+    router.push(`/pages/post-detail?id=${item.id}`);
   };
 
   const handleNoticePress = (item: PostItem) => {
-    (navigation as any).navigate('PostDetail', { postId: item.id.toString() });
+    router.push(`/pages/post-detail?id=${item.id}`);
   };
 
   const renderNewsItem = (item: PostItem) => (
@@ -112,9 +128,18 @@ export default function NotificationsScreen() {
       <View style={styles.cardFooter}>
         <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString('ko-KR')}</Text>
         <View style={styles.statsContainer}>
-          <Text style={styles.statsText}>👁️ {item.view_count}</Text>
-          <Text style={styles.statsText}>❤️ {item.heart_count}</Text>
-          <Text style={styles.statsText}>💬 {item.comment_count}</Text>
+          <View style={styles.statItem}>
+            <Ionicons name="eye" size={12} color="#666666" />
+            <Text style={styles.statsText}> {item.view_count}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="heart" size={12} color="#666666" />
+            <Text style={styles.statsText}> {item.heart_count}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="chatbubble" size={12} color="#666666" />
+            <Text style={styles.statsText}> {item.comment_count}</Text>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -127,9 +152,18 @@ export default function NotificationsScreen() {
       <View style={styles.cardFooter}>
         <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString('ko-KR')}</Text>
         <View style={styles.statsContainer}>
-          <Text style={styles.statsText}>👁️ {item.view_count}</Text>
-          <Text style={styles.statsText}>❤️ {item.heart_count}</Text>
-          <Text style={styles.statsText}>💬 {item.comment_count}</Text>
+          <View style={styles.statItem}>
+            <Ionicons name="eye" size={12} color="#666666" />
+            <Text style={styles.statsText}> {item.view_count}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="heart" size={12} color="#666666" />
+            <Text style={styles.statsText}> {item.heart_count}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="chatbubble" size={12} color="#666666" />
+            <Text style={styles.statsText}> {item.comment_count}</Text>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -139,15 +173,26 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.container}>
       {/* 상단 헤더 */}
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backIcon}>←</Text>
+        {/* 뒤로가기 버튼과 타이틀 */}
+        <View style={styles.headerTop}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="#000000" />
           </TouchableOpacity>
-          {/* 탭 버튼들 */}
-          <View style={[styles.tabContainer, { flex: 1 }]}>
+          <Text style={styles.headerTitle}>새소식 & 공지</Text>
+          {/* 관리자만 작성 버튼 노출 */}
+          {isAdmin && (
+            <TouchableOpacity style={styles.writeButton} onPress={handleWritePress}>
+              <Ionicons name="add" size={20} color="#000000" />
+              <Text style={styles.writeButtonText}>작성</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        {/* 탭 버튼들 */}
+        <View style={styles.tabContainer}>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'news' && styles.activeTabButton]}
-              onPress={() => setActiveTab('news')}
+            onPress={() => setActiveTab('news')}
           >
             <Text style={[styles.tabText, activeTab === 'news' && styles.activeTabText]}>
               새소식
@@ -156,20 +201,13 @@ export default function NotificationsScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'notices' && styles.activeTabButton]}
-              onPress={() => setActiveTab('notices')}
+            onPress={() => setActiveTab('notices')}
           >
             <Text style={[styles.tabText, activeTab === 'notices' && styles.activeTabText]}>
               공지사항
             </Text>
             {activeTab === 'notices' && <View style={styles.activeTabIndicator} />}
           </TouchableOpacity>
-          </View>
-          {/* 관리자만 작성 버튼 노출 */}
-          {isAdmin && (
-            <TouchableOpacity style={{ marginLeft: 8 }} onPress={handleWritePress}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>작성</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
       {/* 콘텐츠 영역 */}
@@ -201,25 +239,31 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
   },
   header: {
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 16,
   },
-  backButton: {
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
+  headerTitle: {
+    fontSize: 18,
     fontWeight: '600',
+    color: '#000000',
+  },
+  backButton: {
+    padding: 8,
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#ffffff',
   },
   tabButton: {
     flex: 1,
@@ -232,11 +276,11 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 16,
-    color: '#CCCCCC',
+    color: '#666666',
     fontWeight: '500',
   },
   activeTabText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontWeight: '600',
   },
   activeTabIndicator: {
@@ -245,12 +289,12 @@ const styles = StyleSheet.create({
     left: '25%',
     right: '25%',
     height: 2,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#000000',
     borderRadius: 1,
   },
   content: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#ffffff',
   },
   tabContent: {
     padding: 16,
@@ -294,8 +338,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   statsText: {
     fontSize: 12,
     color: '#666666',
   },
+  writeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  writeButtonText: {
+    color: '#000000',
+    fontWeight: '600',
+    fontSize: 14,
+    marginLeft: 4,
+  },
+
 }); 

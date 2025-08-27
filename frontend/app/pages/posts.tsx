@@ -15,6 +15,7 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import { postService, PostListResponse } from '../services/postService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function PostsScreen() {
   const router = useRouter();
@@ -210,20 +211,20 @@ export default function PostsScreen() {
         {/* 하단 정보 */}
         <View style={styles.postFooter}>
           <View style={styles.locationInfo}>
-            <Text style={styles.locationIcon}>📍</Text>
+            <Ionicons name="location" size={16} color="#666" style={{ marginRight: 4 }} />
             <Text style={styles.locationText}>{item.building_name || '위치 없음'}</Text>
           </View>
           <View style={styles.engagementInfo}>
             <View style={styles.engagementItem}>
-              <Text style={styles.engagementIcon}>❤️</Text>
+              <Ionicons name="heart-outline" size={16} color="#666" style={{ marginRight: 4 }} />
               <Text style={styles.engagementText}>{item.heart_count}</Text>
             </View>
             <View style={styles.engagementItem}>
-              <Text style={styles.engagementIcon}>💬</Text>
+              <Ionicons name="chatbubble-outline" size={16} color="#666" style={{ marginRight: 4 }} />
               <Text style={styles.engagementText}>{item.comment_count}</Text>
             </View>
             <View style={styles.engagementItem}>
-              <Text style={styles.engagementIcon}>👁️</Text>
+              <Ionicons name="eye-outline" size={16} color="#666" style={{ marginRight: 4 }} />
               <Text style={styles.engagementText}>{item.view_count}</Text>
             </View>
           </View>
@@ -268,13 +269,12 @@ export default function PostsScreen() {
       
       {/* 헤더 */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backIcon}>←</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/tabs/post-list')}>
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>게시글</Text>
         <TouchableOpacity style={styles.searchButton} onPress={() => router.push('/pages/search')}>
-          
-        <Image source={require('../../assets/images/camsaw_search.png')} style={{ width: 45, height: 45, resizeMode: 'contain' }} />
+          <Ionicons name="search" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
@@ -350,13 +350,9 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 8,
     height: 45,
-    width: 45 ,
+    width: 45,
     alignItems: 'center',
-  },
-  backIcon: {
-    fontSize: 30,
-    color: '#FFFFFF',  
-    fontWeight: '600',
+    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 24,
@@ -367,7 +363,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   searchButton: {
+    padding: 8,
+    height: 45,
+    width: 45,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   categoryFilter: {
     backgroundColor: '#FFFFFF',
@@ -495,10 +495,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  locationIcon: {
-    fontSize: 14,
-    marginRight: 4,
-  },
   locationText: {
     fontSize: 12,
     color: '#666',
@@ -512,10 +508,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: 12,
-  },
-  engagementIcon: {
-    fontSize: 14,
-    marginRight: 4,
   },
   engagementText: {
     fontSize: 12,

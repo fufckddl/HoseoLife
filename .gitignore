@@ -19,6 +19,7 @@ GoogleService-Info.plist
 *.pem
 *.key
 camsawAccountKey.json
+*.json
 
 # Database
 *.db
@@ -99,6 +100,29 @@ web-build/
 *.p12
 *.key
 *.mobileprovision
+
+# iOS Build Files (managed by Git LFS)
+# *.ipa
+# *.xcarchive
+# *.dSYM
+# *.app
+# *.framework
+# *.bundle
+# *.car
+# *.metallib
+# *.mom
+# *.momd
+# *.ttf
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif
+# *.mp4
+# *.mov
+# *.avi
+# *.zip
+# *.tar.gz
+# *.tgz
 
 # Metro
 .metro-health-check*

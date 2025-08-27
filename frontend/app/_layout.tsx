@@ -4,6 +4,8 @@ import * as Location from 'expo-location';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import PenaltyNotification from './components/PenaltyNotification';
 import SuspensionModal from './components/SuspensionModal';
+import ErrorBoundary from './components/ErrorBoundary';
+import { ErrorProvider } from './contexts/ErrorContext';
 
 function AppContent() {
   const { 
@@ -70,8 +72,12 @@ function AppContent() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <ErrorProvider>
+          <AppContent />
+        </ErrorProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
