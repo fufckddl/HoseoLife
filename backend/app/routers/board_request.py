@@ -74,12 +74,17 @@ def get_board_requests(
         
         result = []
         for request in board_requests:
+            # 요청자 정보 조회
+            creator = db.query(User).filter(User.id == request.creator_id).first()
+            
             result.append(BoardRequestResponse(
                 id=request.id,
                 name=request.name,
                 description=request.description,
                 created_at=request.created_at,
-                status=request.status
+                status=request.status,
+                creator_id=request.creator_id,
+                creator_name=creator.nickname if creator else None
             ))
         
         return result

@@ -12,6 +12,8 @@ class BoardRequestResponse(BaseModel):
     description: str
     created_at: datetime
     status: str
+    creator_id: int
+    creator_name: Optional[str] = None
 
     class Config:
         from_attributes = True

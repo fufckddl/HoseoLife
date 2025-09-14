@@ -6,8 +6,7 @@ from typing import List
 from datetime import datetime
 from app.db.database import get_db
 from app.models.user import User
-from app.models.group_chat import GroupCreationRequest, Room, Membership, GroupStatus, RoomStatus, UserRole
-from app.models.chat import ChatMessage, ChatRoom
+from app.models.group_chat import GroupCreationRequest, Room, Membership, GroupStatus, RoomStatus, UserRole, ChatMessage
 from app.schemas.group_chat import (
     GroupRequestCreate, GroupRequestOut, GroupApproveOut, 
     AvailableGroupOut, MyRoomsOut, JoinResponse, RoomSummary
@@ -17,6 +16,7 @@ from app.services.fcm_service import send_fcm_to_user
 from app.services.s3_service import s3_service
 from fastapi import Request
 import json
+from app.models.chat import UserRoomLeaveTime
 
 router = APIRouter(prefix="/chat", tags=["group_chat"])
 
@@ -356,6 +356,41 @@ def toggle_room_notifications(
     db.commit()
     return {"room_id": room_id, "notifications_enabled": membership.notifications_enabled}
 
+# 멤버십 활성화 (1:1 채팅방 재입장 시)
+@router.post("/rooms/{room_id}/activate-membership")
+def activate_membership(
+    room_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """1:1 채팅방 재입장 시 멤버십을 활성화합니다."""
+    print(f"🔄 멤버십 활성화 - room_id={room_id}, user_id={current_user.id}")
+    
+    # Room 존재 확인
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다")
+    
+    # 1:1 채팅방만 허용
+    if room.type != "dm":
+        raise HTTPException(status_code=400, detail="1:1 채팅방에서만 사용할 수 있습니다")
+    
+    # 멤버십 조회 (비활성 상태도 포함)
+    membership = db.query(Membership).filter(
+        Membership.room_id == room_id,
+        Membership.user_id == current_user.id
+    ).first()
+    
+    if not membership:
+        raise HTTPException(status_code=404, detail="채팅방 멤버십을 찾을 수 없습니다")
+    
+    # 멤버십 활성화
+    membership.is_active = True
+    db.commit()
+    
+    print(f"✅ 멤버십 활성화 완료 - room_id={room_id}, user_id={current_user.id}")
+    return {"message": "멤버십이 활성화되었습니다", "room_id": room_id}
+
 # 방별 알림 설정 조회
 @router.get("/rooms/{room_id}/notifications")
 def get_room_notifications(
@@ -386,12 +421,30 @@ def get_my_rooms(
     groups = []
     
     # 1. 새로운 Room 모델에서 그룹 채팅방 조회
+    print(f"🔍 Membership 조회 시작 - user_id: {current_user.id}")
+    
+    # 모든 멤버십 조회 (디버깅용)
+    all_memberships = db.query(Membership).filter(
+        Membership.user_id == current_user.id
+    ).all()
+    print(f"📊 전체 멤버십 수: {len(all_memberships)}")
+    
+    for ms in all_memberships:
+        print(f"  - room_id: {ms.room_id}, is_active: {ms.is_active}, role: {ms.role}")
+    
+    # 활성 멤버십만 조회
     my_memberships = db.query(Membership).filter(
         Membership.user_id == current_user.id,
         Membership.is_active == True
     ).all()
     
-    print(f"📊 내 멤버십 수: {len(my_memberships)}")
+    print(f"📊 활성 멤버십 수: {len(my_memberships)}")
+    
+    # Room 테이블 상태 확인 (디버깅용)
+    all_rooms = db.query(Room).all()
+    print(f"🏠 전체 Room 수: {len(all_rooms)}")
+    for r in all_rooms:
+        print(f"  - id: {r.id}, name: {r.name}, type: {r.type}, status: {r.status}")
     
     for membership in my_memberships:
         room = membership.room
@@ -419,10 +472,10 @@ def get_my_rooms(
                     print(f"👤 1:1 채팅방 상대방: {other_user.nickname}")
         
         room_summary = RoomSummary(
-            room_id=room.id,
+            roomId=room.id,  # alias 사용
             name=display_name,
             type=room.type,
-            last_message=last_message.content if last_message else None,
+            lastMessage=last_message.content if last_message else None,  # alias 사용
             unread=0  # TODO: 읽지 않은 메시지 수 계산
         )
         
@@ -531,11 +584,18 @@ async def send_room_message(
     if not membership:
         raise HTTPException(status_code=403, detail="채팅방에 접근할 권한이 없습니다")
     
-    # 메시지 생성
+    # 메시지 생성 (한국 시간으로 저장)
+    from datetime import datetime, timezone, timedelta
+    
+    # 현재 한국 시간
+    korea_tz = timezone(timedelta(hours=9))
+    current_korea_time = datetime.now(korea_tz)
+    
     new_message = ChatMessage(
         content=message_data.get("text", ""),
         sender_id=current_user.id,
         room_id=room_id,
+        sent_at=current_korea_time,
         is_deleted=False
     )
     
@@ -552,14 +612,16 @@ async def send_room_message(
             "type": "message",
             "room_id": room_id,
             "user_id": current_user.id,
+            "message_id": new_message.id,
+            "sender_id": new_message.sender_id,
             "content": new_message.content,
             "sent_at": new_message.sent_at.isoformat() if new_message.sent_at else None
         }
         
         # 온라인 사용자들에게 브로드캐스트
         await manager.broadcast_to_room(
-            json.dumps(ws_message),
             room_id,
+            ws_message,
             exclude_user=current_user.id
         )
         print(f"📡 WebSocket 브로드캐스트 완료")
@@ -655,12 +717,19 @@ async def upload_room_images(
     if len(urls) == 0:
         raise HTTPException(status_code=400, detail="업로드된 이미지가 없습니다")
 
-    # 이미지 메시지 생성
+    # 이미지 메시지 생성 (한국 시간으로 저장)
+    from datetime import datetime, timezone, timedelta
+    
+    # 현재 한국 시간
+    korea_tz = timezone(timedelta(hours=9))
+    current_korea_time = datetime.now(korea_tz)
+    
     msg = ChatMessage(
         content="",  # 텍스트 없음
         sender_id=current_user.id,
         room_id=room_id,
         image_urls=json.dumps(urls),
+        sent_at=current_korea_time,
         is_deleted=False
     )
     db.add(msg)
@@ -753,6 +822,39 @@ def get_room_participants(
         "total_count": len(participants_data)
     }
 
+# 그룹 채팅방 정보 조회 API
+@router.get("/rooms/{room_id}/info")
+def get_room_info(
+    room_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """채팅방 정보를 조회합니다."""
+    print(f"🔍 채팅방 정보 조회 - Room ID: {room_id}, 사용자 ID: {current_user.id}")
+    
+    # Room 존재 확인
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다")
+    
+    # 사용자가 해당 방의 멤버인지 확인
+    membership = db.query(Membership).filter(
+        Membership.room_id == room_id,
+        Membership.user_id == current_user.id
+    ).first()
+    
+    if not membership:
+        raise HTTPException(status_code=403, detail="채팅방에 접근할 권한이 없습니다")
+    
+    print(f"✅ 채팅방 정보 조회 완료 - room_id={room.id}, name={room.name}, type={room.type}")
+    
+    return {
+        "room_id": room.id,
+        "name": room.name,
+        "type": room.type,
+        "description": room.description
+    }
+
 # 채팅방 나가기 API
 @router.post("/rooms/{room_id}/leave")
 async def leave_room(
@@ -787,10 +889,19 @@ async def leave_room(
     if room.type == "dm":
         # 1:1 채팅방은 멤버십을 비활성화
         membership.is_active = False
-        db.commit()
-        print(f"✅ 1:1 채팅방 나가기 완료 - 사용자 {current_user.id}, room_id={room_id}")
         
-        return {"message": "채팅방을 나갔습니다"}
+        # 사용자가 나간 시간 기록
+        leave_record = UserRoomLeaveTime(
+            user_id=current_user.id,
+            room_id=room_id,
+            leave_time=datetime.utcnow()
+        )
+        db.merge(leave_record)  # INSERT OR UPDATE
+        
+        db.commit()
+        print(f"✅ 1:1 채팅방 나가기 완료 - 사용자 {current_user.id}, room_id={room_id}, 나간 시간 기록됨")
+        
+        return {"message": "채팅방을 나갔습니다", "leave_time": leave_record.leave_time.isoformat()}
     
     # 그룹 채팅방인 경우
     else:
@@ -834,3 +945,31 @@ async def leave_room(
             print(f"❌ WebSocket 브로드캐스트 실패: {e}\n{traceback.format_exc()}")
         
         return {"message": "채팅방을 나갔습니다"}
+
+# 사용자 채팅방 나간 시간 조회 API
+@router.get("/rooms/{room_id}/user-leave-time")
+def get_user_leave_time(
+    room_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """사용자가 특정 채팅방을 나간 시간을 조회합니다."""
+    print(f"🔍 사용자 나간 시간 조회 - Room ID: {room_id}, 사용자 ID: {current_user.id}")
+    
+    # Room 존재 확인
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다")
+    
+    # 사용자의 나간 시간 기록 조회
+    leave_record = db.query(UserRoomLeaveTime).filter(
+        UserRoomLeaveTime.user_id == current_user.id,
+        UserRoomLeaveTime.room_id == room_id
+    ).first()
+    
+    if leave_record:
+        print(f"✅ 사용자 나간 시간 발견: {leave_record.leave_time}")
+        return {"leave_time": leave_record.leave_time.isoformat()}
+    else:
+        print(f"ℹ️ 사용자 나간 시간 기록 없음")
+        return {"leave_time": None}
