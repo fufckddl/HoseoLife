@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "CamSaw",
-    "slug": "camsaw",
+    "name": "HoseoLife",
+    "slug": "hoseolife",
     "extra": {
       "eas": {
         "projectId": "b046f9bf-ef7a-4bd4-a9d0-74602416e381"
@@ -10,9 +10,34 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "camsaw",
+    "scheme": "hoseolife",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "HoseoLife가 위치 정보를 사용하여 주변 게시글을 표시합니다."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#ffffff"
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "buildNumber": "14",
@@ -21,17 +46,28 @@
       },
       "bundleIdentifier": "com.dlckdfuf.camsaw",
       "googleServicesFile": "./ios/CamSaw/GoogleService-Info.plist",
+        "associatedDomains": [
+    "applinks:hoseolife.kro.kr/chat/rooms/share",
+    "applinks:hoseolife.kro.kr/posts/share"
+  ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSPhotoLibraryUsageDescription": "캠봤다는 게시글에 사진을 업로드하기 위해 사진 라이브러리에 접근합니다.",
-        "NSCameraUsageDescription": "캠봤다는 게시글에 사진을 촬영하여 업로드하기 위해 카메라에 접근합니다.",
-        "NSLocationWhenInUseUsageDescription": "캠봤다는 주변 게시글을 표시하기 위해 위치 정보를 사용합니다.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "캠봤다는 주변 게시글을 표시하기 위해 위치 정보를 사용합니다.",
+        "NSPhotoLibraryUsageDescription": "HoseoLife는 게시글에 사진을 업로드하기 위해 사진 라이브러리에 접근합니다.",
+        "NSCameraUsageDescription": "HoseoLife는 게시글에 사진을 촬영하여 업로드하기 위해 카메라에 접근합니다.",
+        "NSLocationWhenInUseUsageDescription": "HoseoLife는 주변 게시글을 표시하기 위해 위치 정보를 사용합니다.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "HoseoLife는 주변 게시글을 표시하기 위해 위치 정보를 사용합니다.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsArbitraryLoadsInWebContent": true,
           "NSExceptionDomains": {
             "camsaw.kro.kr": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionMinimumTLSVersion": "1.0",
+              "NSExceptionRequiresForwardSecrecy": false,
+              "NSIncludesSubdomains": true,
+              "NSExceptionAllowsInsecureHTTPLoads": true
+            },
+            "hoseolife.kro.kr": {
               "NSExceptionAllowsInsecureHTTPLoads": true,
               "NSExceptionMinimumTLSVersion": "1.0",
               "NSExceptionRequiresForwardSecrecy": false,
@@ -56,6 +92,29 @@
       "edgeToEdgeEnabled": true,
       "package": "com.dlckdfuf.camsaw",
       "googleServicesFile": "./google-services.json",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+                        "data": [
+                {
+                  "scheme": "https",
+                  "host": "hoseolife.kro.kr",
+                  "pathPrefix": "/chat/rooms/share"
+                },
+                {
+                  "scheme": "https",
+                  "host": "hoseolife.kro.kr",
+                  "pathPrefix": "/posts/share"
+                },
+                {
+                  "scheme": "hoseolife",
+                  "host": "post"
+                }
+              ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "config": {
         "googleMaps": {
           "apiKey": "YOUR_ANDROID_GOOGLE_MAPS_API_KEY"
@@ -85,7 +144,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "캠봤다가 위치 정보를 사용하여 주변 게시글을 표시합니다."
+          "locationAlwaysAndWhenInUsePermission": "HoseoLife가 위치 정보를 사용하여 주변 게시글을 표시합니다."
         }
       ],
       [
@@ -96,6 +155,7 @@
         }
       ]
     ],
+
     "experiments": {
       "typedRoutes": true
     },

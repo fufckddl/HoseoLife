@@ -6,6 +6,7 @@ import PenaltyNotification from './components/PenaltyNotification';
 import SuspensionModal from './components/SuspensionModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ErrorProvider } from './contexts/ErrorContext';
+import { setupDeepLinkListener } from './utils/deepLinkUtils';
 
 function AppContent() {
   const { 
@@ -54,6 +55,17 @@ function AppContent() {
 
     setupFCMToken();
   }, [getFCMToken, updateFCMToken]);
+
+  // 딥링크 리스너 설정
+  useEffect(() => {
+    console.log('🔗 딥링크 리스너 설정 시작');
+    const cleanup = setupDeepLinkListener();
+    
+    return () => {
+      console.log('🔗 딥링크 리스너 정리');
+      cleanup();
+    };
+  }, []);
 
   return (
     <>

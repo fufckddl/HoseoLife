@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   Image,
   SafeAreaView,
   ActivityIndicator,
@@ -12,6 +13,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Share,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { postService, PostResponse, Comment, ScrapResponse, ScrapStatus } from '../services/postService';
@@ -21,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { FullScreenImageViewer } from '../components/FullScreenImageViewer';
 import ReportModal from '../components/ReportModal';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface PostDetail extends PostResponse {
   comments?: Comment[];
@@ -55,6 +58,11 @@ export default function PostDetailScreen() {
   const [reportTarget, setReportTarget] = React.useState<{ type: 'post' | 'comment', id: number, content?: string } | null>(null);
   const [showPostMenu, setShowPostMenu] = React.useState(false);
   const [showCommentMenu, setShowCommentMenu] = React.useState<number | null>(null);
+  
+  // 대댓글 관련 상태 추가
+  const [replyingTo, setReplyingTo] = React.useState<number | null>(null);
+  const [replyText, setReplyText] = React.useState('');
+  const [submittingReply, setSubmittingReply] = React.useState(false);
 
   React.useEffect(() => {
     console.log('=== PostDetailScreen useEffect 실행 ===');
@@ -134,6 +142,35 @@ export default function PostDetailScreen() {
     } catch (error) {
       console.error('댓글 조회 실패:', error);
     }
+  };
+
+  // 댓글을 부모-자식 구조로 정리하는 함수 추가
+  const organizeCommentsWithReplies = (comments: Comment[]) => {
+    const commentMap = new Map<number, Comment & { replies: Comment[] }>();
+    const rootComments: (Comment & { replies: Comment[] })[] = [];
+
+    // 모든 댓글을 맵에 저장하고 replies 배열 초기화
+    comments.forEach(comment => {
+      commentMap.set(comment.id, { ...comment, replies: [] });
+    });
+
+    // 댓글들을 부모-자식 관계로 정리
+    comments.forEach(comment => {
+      const commentWithReplies = commentMap.get(comment.id)!;
+      
+      if (comment.parent_id) {
+        // 대댓글인 경우 부모 댓글의 replies에 추가
+        const parentComment = commentMap.get(comment.parent_id);
+        if (parentComment) {
+          parentComment.replies.push(commentWithReplies);
+        }
+      } else {
+        // 최상위 댓글인 경우 rootComments에 추가
+        rootComments.push(commentWithReplies);
+      }
+    });
+
+    return rootComments;
   };
 
   const fetchHeartStatus = async () => {
@@ -240,6 +277,30 @@ export default function PostDetailScreen() {
       Alert.alert('오류', '댓글 작성에 실패했습니다.');
     } finally {
       setSubmittingComment(false);
+    }
+  };
+
+  // 대댓글 작성 함수 추가
+  const handleSubmitReply = async (parentCommentId: number) => {
+    if (!replyText.trim()) {
+      Alert.alert('알림', '대댓글 내용을 입력해주세요.');
+      return;
+    }
+
+    try {
+      setSubmittingReply(true);
+      await postService.createComment(parseInt(postId), replyText.trim(), parentCommentId);
+      setReplyText('');
+      setReplyingTo(null);
+      // 댓글 목록 새로고침
+      await fetchComments();
+      // 게시글 정보 새로고침 (댓글 수 업데이트)
+      await fetchPostDetail();
+    } catch (error) {
+      console.error('대댓글 작성 실패:', error);
+      Alert.alert('오류', '대댓글 작성에 실패했습니다.');
+    } finally {
+      setSubmittingReply(false);
     }
   };
 
@@ -398,6 +459,209 @@ export default function PostDetailScreen() {
     );
   };
 
+  const sharePost = async () => {
+    try {
+      console.log('🔗 게시글 공유 시작 - Post ID:', postId);
+      
+      // 백엔드에서 공유 링크 생성
+      const response = await fetch(`https://hoseolife.kro.kr/posts/${postId}/share-link`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${await AsyncStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const shareLink = data.share_link;
+      
+      console.log('✅ 공유 링크 생성 완료:', shareLink);
+
+      // 공유 다이얼로그 표시
+      const result = await Share.share({
+        message: `호서라이프 게시글을 공유합니다!\n\n📱 앱이 설치되어 있다면 자동으로 앱에서 열립니다!\n🌐 앱이 없다면 웹에서 확인할 수 있습니다.\n\n${shareLink}`,
+        url: shareLink,
+        title: '호서라이프 게시글 공유',
+      });
+
+      if (result.action === Share.sharedAction) {
+        console.log('✅ 공유 완료');
+      }
+    } catch (error) {
+      console.error('❌ 게시글 공유 실패:', error);
+      Alert.alert('오류', '게시글 공유에 실패했습니다.');
+    }
+  };
+
+  // 댓글 렌더링 함수 추가
+  const renderComment = (comment: Comment & { replies: Comment[] }, isReply: boolean = false) => {
+    return (
+      <View key={comment.id} style={[styles.commentItem, isReply && styles.replyComment]}>
+        <View style={styles.commentHeader}>
+          <View style={styles.commentAuthorContainer}>
+            {comment.author_nickname && comment.author_nickname !== '알 수 없음' ? (
+              comment.author_profile_image_url ? (
+                <Image 
+                  source={{ 
+                    uri: comment.author_profile_image_url,
+                    cache: 'reload'
+                  }} 
+                  style={styles.commentAuthorImage} 
+                />
+              ) : (
+                <Image 
+                  source={require('../../assets/images/camsaw_human.png')} 
+                  style={styles.commentAuthorImage} 
+                />
+              )
+            ) : null}
+            <TouchableOpacity 
+              onPress={() => {
+                if (comment.author_nickname && comment.author_nickname !== '알 수 없음') {
+                  handleAuthorChat(comment.author_id, comment.author_nickname);
+                }
+              }}
+              disabled={comment.author_id === currentUserId || !comment.author_nickname || comment.author_nickname === '알 수 없음'}
+            >
+              <Text style={[
+                styles.commentAuthor,
+                (comment.author_id === currentUserId || !comment.author_nickname || comment.author_nickname === '알 수 없음') && styles.commentAuthorDisabled
+              ]}>
+                {comment.author_nickname || '알 수 없음'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.commentRightSection}>
+            <Text style={styles.commentTime}>{formatTimeAgo(comment.created_at)}</Text>
+            
+            {/* 대댓글 버튼 추가 (대댓글에는 대댓글 버튼 숨김) */}
+            {!isReply && (
+              <Pressable 
+                style={({ pressed }) => [
+                  styles.replyButton,
+                  pressed && { opacity: 1 } // 터치 시에도 투명도 변화 없음
+                ]} 
+                onPress={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
+              >
+                <Ionicons name="chatbubble-outline" size={16} color="#666" />
+              </Pressable>
+            )}
+            
+            {/* 메뉴 버튼 (배경색 제거) */}
+            <Pressable 
+              style={({ pressed }) => [
+                styles.commentMenuButton,
+                pressed && { opacity: 1 } // 터치 시에도 투명도 변화 없음
+              ]} 
+              onPress={() => setShowCommentMenu(showCommentMenu === comment.id ? null : comment.id)}
+            >
+              <Ionicons name="ellipsis-vertical" size={16} color="#000000" />
+            </Pressable>
+          </View>
+        </View>
+        <Text style={styles.commentContent}>{comment.content}</Text>
+        
+        {/* 대댓글 입력 영역 */}
+        {replyingTo === comment.id && (
+          <View style={styles.replyInputContainer}>
+            <TextInput
+              style={styles.replyInput}
+              placeholder="대댓글을 입력하세요..."
+              value={replyText}
+              onChangeText={setReplyText}
+              multiline
+              maxLength={500}
+              placeholderTextColor="#999"
+            />
+            <View style={styles.replyInputActions}>
+              <TouchableOpacity 
+                style={styles.replyCancelButton}
+                onPress={() => {
+                  setReplyingTo(null);
+                  setReplyText('');
+                }}
+              >
+                <Text style={styles.replyCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.replySubmitButton,
+                  (!replyText.trim() || submittingReply) && styles.replySubmitButtonDisabled
+                ]}
+                onPress={() => handleSubmitReply(comment.id)}
+                disabled={!replyText.trim() || submittingReply}
+              >
+                {submittingReply ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.replySubmitText}>등록</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        
+        {/* 댓글 메뉴 드롭다운 */}
+        {showCommentMenu === comment.id && (
+          <View style={styles.commentMenuOverlay}>
+            <TouchableOpacity 
+              style={styles.commentMenuBackdrop} 
+              onPress={() => setShowCommentMenu(null)}
+              activeOpacity={1}
+            />
+            <View style={styles.commentMenuContainer}>
+              {currentUserId === comment.author_id ? (
+                // 댓글 작성자인 경우: 삭제 | 신고
+                <>
+                  <TouchableOpacity 
+                    style={styles.commentMenuItem} 
+                    onPress={() => {
+                      setShowCommentMenu(null);
+                      handleDeleteComment(comment.id);
+                    }}
+                  >
+                    <Text style={styles.commentMenuItemText}>삭제</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.commentMenuItem} 
+                    onPress={() => {
+                      setShowCommentMenu(null);
+                      handleReportComment(comment.id);
+                    }}
+                  >
+                    <Text style={styles.commentMenuItemText}>신고</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                // 댓글 작성자가 아닌 경우: 신고
+                <TouchableOpacity 
+                  style={styles.commentMenuItem} 
+                  onPress={() => {
+                    setShowCommentMenu(null);
+                    handleReportComment(comment.id);
+                  }}
+                >
+                  <Text style={styles.commentMenuItemText}>신고</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+        
+        {/* 대댓글들 렌더링 */}
+        {comment.replies && comment.replies.length > 0 && (
+          <View style={styles.repliesContainer}>
+            {comment.replies.map((reply) => renderComment({ ...reply, replies: [] }, true))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -490,14 +754,18 @@ export default function PostDetailScreen() {
               </View>
               <TouchableOpacity 
                 style={styles.authorTag}
-                onPress={() => handleAuthorChat(post.author_id, post.author_nickname)}
-                disabled={post.author_id === currentUserId}
+                onPress={() => {
+                  if (post.author_nickname && post.author_nickname !== '알 수 없음') {
+                    handleAuthorChat(post.author_id, post.author_nickname);
+                  }
+                }}
+                disabled={post.author_id === currentUserId || !post.author_nickname || post.author_nickname === '알 수 없음'}
               >
                 <Text style={[
                   styles.authorText,
-                  post.author_id === currentUserId && styles.authorTextDisabled
+                  (post.author_id === currentUserId || !post.author_nickname || post.author_nickname === '알 수 없음') && styles.authorTextDisabled
                 ]}>
-                  {post.author_nickname}
+                  {post.author_nickname || '알 수 없음'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -587,104 +855,7 @@ export default function PostDetailScreen() {
             
             {/* 댓글 목록 */}
             {comments.length > 0 ? (
-              comments.map((comment) => {
-                console.log('댓글 렌더링:', {
-                  id: comment.id,
-                  author: comment.author_nickname,
-                  profileImage: comment.author_profile_image_url
-                });
-                
-                return (
-                <View key={comment.id} style={styles.commentItem}>
-                  <View style={styles.commentHeader}>
-                    <View style={styles.commentAuthorContainer}>
-                      {comment.author_profile_image_url ? (
-                        <Image 
-                          source={{ 
-                            uri: comment.author_profile_image_url,
-                            cache: 'reload'
-                          }} 
-                          style={styles.commentAuthorImage} 
-                        />
-                      ) : (
-                        <Image 
-                          source={require('../../assets/images/camsaw_human.png')} 
-                          style={styles.commentAuthorImage} 
-                        />
-                      )}
-                      <TouchableOpacity 
-                        onPress={() => handleAuthorChat(comment.author_id, comment.author_nickname)}
-                        disabled={comment.author_id === currentUserId}
-                      >
-                        <Text style={[
-                          styles.commentAuthor,
-                          comment.author_id === currentUserId && styles.commentAuthorDisabled
-                        ]}>
-                          {comment.author_nickname}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.commentRightSection}>
-                      <Text style={styles.commentTime}>{formatTimeAgo(comment.created_at)}</Text>
-                      <TouchableOpacity 
-                        style={styles.commentMenuButton} 
-                        onPress={() => setShowCommentMenu(showCommentMenu === comment.id ? null : comment.id)}
-                      >
-                        <Ionicons name="ellipsis-vertical" size={16} color="#000000" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <Text style={styles.commentContent}>{comment.content}</Text>
-                  
-                  {/* 댓글 메뉴 드롭다운 */}
-                  {showCommentMenu === comment.id && (
-                    <View style={styles.commentMenuOverlay}>
-                      <TouchableOpacity 
-                        style={styles.commentMenuBackdrop} 
-                        onPress={() => setShowCommentMenu(null)}
-                        activeOpacity={1}
-                      />
-                      <View style={styles.commentMenuContainer}>
-                        {currentUserId === comment.author_id ? (
-                          // 댓글 작성자인 경우: 삭제 | 신고
-                          <>
-                            <TouchableOpacity 
-                              style={styles.commentMenuItem} 
-                              onPress={() => {
-                                setShowCommentMenu(null);
-                                handleDeleteComment(comment.id);
-                              }}
-                            >
-                              <Text style={styles.commentMenuItemText}>삭제</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity 
-                              style={styles.commentMenuItem} 
-                              onPress={() => {
-                                setShowCommentMenu(null);
-                                handleReportComment(comment.id);
-                              }}
-                            >
-                              <Text style={styles.commentMenuItemText}>신고</Text>
-                            </TouchableOpacity>
-                          </>
-                        ) : (
-                          // 댓글 작성자가 아닌 경우: 신고
-                          <TouchableOpacity 
-                            style={styles.commentMenuItem} 
-                            onPress={() => {
-                              setShowCommentMenu(null);
-                              handleReportComment(comment.id);
-                            }}
-                          >
-                            <Text style={styles.commentMenuItemText}>신고</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </View>
-                  )}
-                </View>
-              );
-            })
+              organizeCommentsWithReplies(comments).map((comment) => renderComment(comment))
             ) : (
               <View style={styles.noCommentContainer}>
                 <Text style={styles.noCommentText}>아직 댓글이 없습니다.</Text>
@@ -752,18 +923,18 @@ export default function PostDetailScreen() {
             activeOpacity={1}
           />
           <View style={styles.menuContainer}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              onPress={() => {
+                setShowPostMenu(false);
+                sharePost();
+              }}
+            >
+              <Text style={styles.menuItemText}>공유</Text>
+            </TouchableOpacity>
             {currentUserId === post.author_id ? (
               // 작성자인 경우: 삭제 | 수정 | 신고
               <>
-                <TouchableOpacity 
-                  style={styles.menuItem} 
-                  onPress={() => {
-                    setShowPostMenu(false);
-                    handleDeletePost();
-                  }}
-                >
-                  <Text style={styles.menuItemText}>삭제</Text>
-                </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.menuItem} 
                   onPress={() => {
@@ -772,6 +943,15 @@ export default function PostDetailScreen() {
                   }}
                 >
                   <Text style={styles.menuItemText}>수정</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setShowPostMenu(false);
+                    handleDeletePost();
+                  }}
+                >
+                  <Text style={styles.menuItemText}>삭제</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.menuItem} 
@@ -974,13 +1154,45 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   commentItem: {
-    marginBottom: 12,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E8EAED',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  replyComment: {
+    marginLeft: 24,
+    marginTop: 8,
+    backgroundColor: '#FAFBFC',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E8EAED',
+    borderLeftWidth: 4,
+    borderLeftColor: '#007AFF',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   commentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   commentAuthorContainer: {
     flexDirection: 'row',
@@ -988,10 +1200,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   commentAuthorImage: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginRight: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
     resizeMode: 'cover',
   },
   commentRightSection: {
@@ -1001,16 +1213,16 @@ const styles = StyleSheet.create({
   },
   commentAuthor: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: '700',
+    color: '#1A1A1A',
   },
   commentAuthorDisabled: {
     color: '#999',
   },
   commentTime: {
     fontSize: 12,
-    color: '#999',
-    marginLeft: 8,
+    color: '#8E8E93',
+    fontWeight: '500',
   },
   timeText: {
     fontSize: 12,
@@ -1018,11 +1230,91 @@ const styles = StyleSheet.create({
     fontFamily: 'GmarketSans',
   },
   commentContent: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
+    fontSize: 15,
+    color: '#1A1A1A',
+    lineHeight: 22,
+    marginBottom: 8,
+    fontWeight: '400',
   },
-
+  commentActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  commentActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  commentActionText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  likedText: {
+    color: '#FF3B30',
+    fontWeight: '600',
+  },
+  replyInputContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  replyInput: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    fontSize: 14,
+    color: '#333',
+    minHeight: 36,
+    maxHeight: 80,
+    textAlignVertical: 'top',
+  },
+  replyInputActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  replyCancelButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 6,
+  },
+  replyCancelText: {
+    fontSize: 12,
+    color: '#333',
+    fontWeight: '500',
+  },
+  replySubmitButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#007AFF',
+    borderRadius: 6,
+  },
+  replySubmitButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
+  },
+  replySubmitText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  repliesContainer: {
+    marginTop: 12,
+    marginLeft: 0,
+    paddingLeft: 0,
+  },
   noCommentContainer: {
     alignItems: 'center',
     paddingVertical: 20,
@@ -1181,7 +1473,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   commentMenuButton: {
-    padding: 4,
+    padding: 6,
+    borderRadius: 6,
+  },
+  
+  // 대댓글 버튼 스타일 추가
+  replyButton: {
+    padding: 6,
+    marginRight: 8,
+    borderRadius: 6,
   },
   commentMenuOverlay: {
     position: 'absolute',
@@ -1190,6 +1490,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 1000,
+    backgroundColor: 'transparent', // 투명 배경으로 설정
   },
   commentMenuBackdrop: {
     position: 'absolute',
@@ -1197,7 +1498,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'transparent', // 배경색 제거
   },
   commentMenuContainer: {
     position: 'absolute',
