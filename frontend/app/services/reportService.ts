@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'https://camsaw.kro.kr';
+const API_BASE_URL = 'https://hoseolife.kro.kr';
 
 export enum ReportType {
   SPAM = "스팸/광고",
@@ -110,6 +110,48 @@ class ReportService {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` }),
     };
+  }
+
+  // 중복 신고 확인
+  async checkDuplicate(targetType: string, targetId: number): Promise<{ is_duplicate: boolean; existing_report_id?: number }> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/reports/check-duplicate?target_type=${targetType}&target_id=${targetId}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('중복 신고 확인 실패:', error);
+      throw error;
+    }
+  }
+
+  // 내 신고 목록 조회
+  async getMyReports(): Promise<ReportData[]> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/reports/my`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('내 신고 목록 조회 실패:', error);
+      throw error;
+    }
   }
 
   // 신고 생성

@@ -14,8 +14,11 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userService } from '../services/userService';
+import { notificationService, NotificationItem } from '../services/notificationService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 
-type TabType = 'news' | 'notices';
+type TabType = 'news_notices' | 'notifications';
 
 interface PostItem {
   id: number;
@@ -30,14 +33,15 @@ interface PostItem {
   image_urls?: string[];
 }
 
-const API_BASE_URL = 'https://camsaw.kro.kr';
+const API_BASE_URL = 'https://hoseolife.kro.kr';
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabType>('news');
+  const insets = useSafeAreaInsets();
+  const [activeTab, setActiveTab] = useState<TabType>('news_notices');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [newsItems, setNewsItems] = useState<PostItem[]>([]);
-  const [noticeItems, setNoticeItems] = useState<PostItem[]>([]);
+  const [newsNoticesItems, setNewsNoticesItems] = useState<PostItem[]>([]); // 🔧 통합된 새소식&공지
+  const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]); // 🆕 사용자 알림
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -72,30 +76,35 @@ export default function NotificationsScreen() {
 
   useEffect(() => {
     setLoading(true);
-    if (activeTab === 'news') {
-      // 뉴스 카테고리 게시글 조회 (뉴스/공지 포함)
-      fetch(`${API_BASE_URL}/posts/?category=뉴스&include_news_notices=true`)
-        .then(res => res.json())
-        .then(data => {
-          if (Array.isArray(data)) setNewsItems(data);
-          else setNewsItems([]);
+    if (activeTab === 'news_notices') {
+      // 🔧 새소식과 공지사항을 통합해서 조회
+      Promise.all([
+        fetch(`${API_BASE_URL}/posts/?category=뉴스&include_news_notices=true`).then(res => res.json()),
+        fetch(`${API_BASE_URL}/posts/?category=공지&include_news_notices=true`).then(res => res.json())
+      ])
+        .then(([newsData, noticeData]) => {
+          const allItems = [
+            ...(Array.isArray(newsData) ? newsData : []),
+            ...(Array.isArray(noticeData) ? noticeData : [])
+          ];
+          // 생성일 기준으로 최신순 정렬
+          allItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          setNewsNoticesItems(allItems);
         })
         .catch(error => {
-          console.error('뉴스 조회 오류:', error);
-          setNewsItems([]);
+          console.error('새소식&공지 조회 오류:', error);
+          setNewsNoticesItems([]);
         })
         .finally(() => setLoading(false));
     } else {
-      // 공지사항 카테고리 게시글 조회 (뉴스/공지 포함)
-      fetch(`${API_BASE_URL}/posts/?category=공지&include_news_notices=true`)
-        .then(res => res.json())
-        .then(data => {
-          if (Array.isArray(data)) setNoticeItems(data);
-          else setNoticeItems([]);
+      // 🆕 사용자 알림 조회
+      notificationService.getUserNotifications(0, 50, false)
+        .then(notifications => {
+          setUserNotifications(notifications);
         })
         .catch(error => {
-          console.error('공지사항 조회 오류:', error);
-          setNoticeItems([]);
+          console.error('사용자 알림 조회 오류:', error);
+          setUserNotifications([]);
         })
         .finally(() => setLoading(false));
     }
@@ -106,10 +115,9 @@ export default function NotificationsScreen() {
   };
 
   const handleWritePress = () => {
-    if (activeTab === 'news') {
+    if (activeTab === 'news_notices') {
+      // 🔧 새소식 또는 공지 작성 선택 모달 표시 (또는 기본값으로 새소식)
       router.push('/pages/create-news');
-    } else if (activeTab === 'notices') {
-      router.push('/pages/create-notice');
     }
   };
 
@@ -123,22 +131,30 @@ export default function NotificationsScreen() {
 
   const renderNewsItem = (item: PostItem) => (
     <TouchableOpacity key={item.id} style={styles.card} onPress={() => handleNewsPress(item)}>
-      <Text style={styles.cardTitle}>{item.title}</Text>
-      <Text style={styles.cardContent}>{item.content}</Text>
-      <View style={styles.cardFooter}>
-        <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString('ko-KR')}</Text>
-        <View style={styles.statsContainer}>
+      <View style={styles.postHeader}>
+        <View style={styles.authorInfo}>
+          <Text style={styles.authorName}>{getDisplayNickname(item.author_nickname)}</Text>
+          <Text style={styles.postTime}>{new Date(item.created_at).toLocaleDateString('ko-KR')}</Text>
+        </View>
+      </View>
+      
+      <Text style={styles.postTitle} numberOfLines={2}>
+        {item.title}
+      </Text>
+      
+      <View style={styles.postFooter}>
+        <View style={styles.postStats}>
           <View style={styles.statItem}>
-            <Ionicons name="eye" size={12} color="#666666" />
-            <Text style={styles.statsText}> {item.view_count}</Text>
+            <Ionicons name="eye-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.view_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="heart" size={12} color="#666666" />
-            <Text style={styles.statsText}> {item.heart_count}</Text>
+            <Ionicons name="chatbubble-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.comment_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="chatbubble" size={12} color="#666666" />
-            <Text style={styles.statsText}> {item.comment_count}</Text>
+            <Ionicons name="heart-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.heart_count}</Text>
           </View>
         </View>
       </View>
@@ -147,30 +163,139 @@ export default function NotificationsScreen() {
 
   const renderNoticeItem = (item: PostItem) => (
     <TouchableOpacity key={item.id} style={styles.card} onPress={() => handleNoticePress(item)}>
-      <Text style={styles.cardTitle}>{item.title}</Text>
-      <Text style={styles.cardContent}>{item.content}</Text>
-      <View style={styles.cardFooter}>
-        <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString('ko-KR')}</Text>
-        <View style={styles.statsContainer}>
+      <View style={styles.postHeader}>
+        <View style={styles.authorInfo}>
+          <Text style={styles.authorName}>{getDisplayNickname(item.author_nickname)}</Text>
+          <Text style={styles.postTime}>{new Date(item.created_at).toLocaleDateString('ko-KR')}</Text>
+        </View>
+        {/* 🆕 카테고리 배지 추가 */}
+        <View style={[styles.categoryBadge, { backgroundColor: item.category === '뉴스' ? '#007AFF' : '#FF6B6B' }]}>
+          <Text style={styles.categoryText}>{item.category}</Text>
+        </View>
+      </View>
+      
+      <Text style={styles.postTitle} numberOfLines={2}>
+        {item.title}
+      </Text>
+      
+      <View style={styles.postFooter}>
+        <View style={styles.postStats}>
           <View style={styles.statItem}>
-            <Ionicons name="eye" size={12} color="#666666" />
-            <Text style={styles.statsText}> {item.view_count}</Text>
+            <Ionicons name="eye-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.view_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="heart" size={12} color="#666666" />
-            <Text style={styles.statsText}> {item.heart_count}</Text>
+            <Ionicons name="chatbubble-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.comment_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="chatbubble" size={12} color="#666666" />
-            <Text style={styles.statsText}> {item.comment_count}</Text>
+            <Ionicons name="heart-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.heart_count}</Text>
           </View>
         </View>
       </View>
     </TouchableOpacity>
   );
 
+  // 🆕 사용자 알림 아이템 렌더링
+  const renderNotificationItem = (item: NotificationItem) => {
+    const handleNotificationPress = async () => {
+      // 읽지 않은 알림이면 읽음 처리
+      if (!item.is_read) {
+        try {
+          await notificationService.markNotificationAsRead(item.id);
+          // 알림 목록 새로고침
+          setRefreshKey(prev => prev + 1);
+        } catch (error) {
+          console.error('알림 읽음 처리 실패:', error);
+        }
+      }
+      
+      // 알림 타입에 따라 해당 페이지로 이동
+      const data = item.data ? JSON.parse(item.data) : {};
+      if (item.notification_type === 'comment' || item.notification_type === 'heart') {
+        router.push(`/pages/post-detail?id=${data.post_id}`);
+      } else if (item.notification_type === 'chat_message') {
+        router.push(`/pages/chat-room?id=${data.room_id}&type=${data.room_type}`);
+      }
+    };
+
+    return (
+      <TouchableOpacity 
+        key={item.id} 
+        style={[
+          styles.notificationCard,
+          !item.is_read && styles.unreadNotificationCard
+        ]}
+        onPress={handleNotificationPress}
+      >
+        <View style={styles.notificationHeader}>
+          <View style={styles.notificationTypeContainer}>
+            <Ionicons 
+              name={getNotificationIcon(item.notification_type)} 
+              size={20} 
+              color={getNotificationColor(item.notification_type)} 
+            />
+            {!item.is_read && <View style={styles.unreadDot} />}
+          </View>
+          <Text style={styles.notificationTime}>
+            {formatTimeAgo(item.created_at)}
+          </Text>
+        </View>
+        <Text style={[styles.notificationTitle, !item.is_read && styles.unreadTitle]}>
+          {item.title}
+        </Text>
+        <Text style={styles.notificationContent} numberOfLines={2}>
+          {item.message}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  // 알림 타입별 아이콘 반환
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'comment': return 'chatbubble';
+      case 'heart': return 'heart';
+      case 'chat_message': return 'chatbox';
+      case 'news': return 'newspaper';
+      case 'hot_post': return 'flame';
+      default: return 'notifications';
+    }
+  };
+
+  // 알림 타입별 색상 반환
+  const getNotificationColor = (type: string) => {
+    switch (type) {
+      case 'comment': return '#007AFF';
+      case 'heart': return '#FF3B30';
+      case 'chat_message': return '#34C759';
+      case 'news': return '#FF9500';
+      case 'hot_post': return '#FF6B6B';
+      default: return '#8E8E93';
+    }
+  };
+
+  // 시간 포맷팅
+  const formatTimeAgo = (dateString: string) => {
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+    
+    if (diffInMinutes < 1) return '방금전';
+    if (diffInMinutes < 60) return `${diffInMinutes}분전`;
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours}시간전`;
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) return `${diffInDays}일전`;
+    
+    return date.toLocaleDateString('ko-KR');
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: '#fff' }]}>
       {/* 상단 헤더 */}
       <View style={styles.header}>
         {/* 뒤로가기 버튼과 타이틀 */}
@@ -178,35 +303,37 @@ export default function NotificationsScreen() {
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="#000000" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>새소식 & 공지</Text>
+          <Text style={[styles.headerTitle, !isAdmin && styles.headerTitleCentered]}>새소식 & 공지</Text>
           {/* 관리자만 작성 버튼 노출 */}
-          {isAdmin && (
+          {isAdmin ? (
             <TouchableOpacity style={styles.writeButton} onPress={handleWritePress}>
               <Ionicons name="add" size={20} color="#000000" />
               <Text style={styles.writeButtonText}>작성</Text>
             </TouchableOpacity>
+          ) : (
+            <View style={styles.placeholderButton} />
           )}
         </View>
         
         {/* 탭 버튼들 */}
         <View style={styles.tabContainer}>
           <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'news' && styles.activeTabButton]}
-            onPress={() => setActiveTab('news')}
+            style={[styles.tabButton, activeTab === 'news_notices' && styles.activeTabButton]}
+            onPress={() => setActiveTab('news_notices')}
           >
-            <Text style={[styles.tabText, activeTab === 'news' && styles.activeTabText]}>
-              새소식
+            <Text style={[styles.tabText, activeTab === 'news_notices' && styles.activeTabText]}>
+              새소식 & 공지
             </Text>
-            {activeTab === 'news' && <View style={styles.activeTabIndicator} />}
+            {activeTab === 'news_notices' && <View style={styles.activeTabIndicator} />}
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'notices' && styles.activeTabButton]}
-            onPress={() => setActiveTab('notices')}
+            style={[styles.tabButton, activeTab === 'notifications' && styles.activeTabButton]}
+            onPress={() => setActiveTab('notifications')}
           >
-            <Text style={[styles.tabText, activeTab === 'notices' && styles.activeTabText]}>
-              공지사항
+            <Text style={[styles.tabText, activeTab === 'notifications' && styles.activeTabText]}>
+              내 알림
             </Text>
-            {activeTab === 'notices' && <View style={styles.activeTabIndicator} />}
+            {activeTab === 'notifications' && <View style={styles.activeTabIndicator} />}
           </TouchableOpacity>
         </View>
       </View>
@@ -214,32 +341,36 @@ export default function NotificationsScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} />
-        ) : activeTab === 'news' ? (
+        ) : activeTab === 'news_notices' ? (
           <View style={styles.tabContent}>
-            {newsItems.length === 0 ? (
-              <Text style={{ color: '#888', textAlign: 'center', marginTop: 40 }}>새소식이 없습니다.</Text>
+            {newsNoticesItems.length === 0 ? (
+              <Text style={{ color: '#888', textAlign: 'center', marginTop: 40 }}>새소식 & 공지가 없습니다.</Text>
             ) : (
-              newsItems.map(renderNewsItem)
+              newsNoticesItems.map(renderNewsItem)
             )}
           </View>
         ) : (
           <View style={styles.tabContent}>
-            {noticeItems.length === 0 ? (
-              <Text style={{ color: '#888', textAlign: 'center', marginTop: 40 }}>공지사항이 없습니다.</Text>
+            {userNotifications.length === 0 ? (
+              <View style={styles.emptyNotifications}>
+                <Ionicons name="notifications-outline" size={64} color="#CCCCCC" />
+                <Text style={styles.emptyText}>받은 알림이 없습니다</Text>
+                <Text style={styles.emptySubtext}>새로운 알림이 있을 때 여기에 표시됩니다</Text>
+              </View>
             ) : (
-              noticeItems.map(renderNoticeItem)
+              userNotifications.map(renderNotificationItem)
             )}
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f8f9fa',
   },
   header: {
     backgroundColor: '#ffffff',
@@ -256,7 +387,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000000',
+    color: '#212529',
+  },
+  headerTitleCentered: {
+    flex: 1,
+    textAlign: 'center',
+    marginLeft: 30
   },
   backButton: {
     padding: 8,
@@ -276,11 +412,11 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 16,
-    color: '#666666',
+    color: '#6c757d',
     fontWeight: '500',
   },
   activeTabText: {
-    color: '#000000',
+    color: '#212529',
     fontWeight: '600',
   },
   activeTabIndicator: {
@@ -289,18 +425,18 @@ const styles = StyleSheet.create({
     left: '25%',
     right: '25%',
     height: 2,
-    backgroundColor: '#000000',
+    backgroundColor: '#212529',
     borderRadius: 1,
   },
   content: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f8f9fa',
   },
   tabContent: {
     padding: 16,
   },
   card: {
-    backgroundColor: '#F5F5DC', // 베이지색
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -313,38 +449,50 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  cardTitle: {
+  postHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  authorInfo: {
+    flex: 1,
+  },
+  authorName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#495057',
+  },
+  postTime: {
+    fontSize: 12,
+    color: '#6c757d',
+    marginTop: 2,
+  },
+  postTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333333',
+    color: '#212529',
     marginBottom: 8,
+    lineHeight: 22,
   },
-  cardContent: {
-    fontSize: 14,
-    color: '#666666',
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  cardFooter: {
+  postFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  cardDate: {
-    fontSize: 12,
-    color: '#999999',
-  },
-  statsContainer: {
+  postStats: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 16,
   },
-  statsText: {
+  statText: {
     fontSize: 12,
-    color: '#666666',
+    color: '#6c757d',
+    marginLeft: 4,
   },
   writeButton: {
     flexDirection: 'row',
@@ -361,5 +509,96 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 4,
   },
-
+  placeholderButton: {
+    width: 60,
+  },
+  // 🆕 카테고리 배지 스타일
+  categoryBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  categoryText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // 🆕 사용자 알림 스타일
+  notificationCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // 🆕 읽지 않은 알림 스타일
+  unreadNotificationCard: {
+    backgroundColor: '#F8F9FF',
+    borderLeftColor: '#007AFF',
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  notificationTime: {
+    fontSize: 12,
+    color: '#6c757d',
+  },
+  notificationTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF3B30',
+    position: 'absolute',
+    top: -2,
+    right: -2,
+  },
+  notificationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#212529',
+    marginBottom: 4,
+  },
+  unreadTitle: {
+    fontWeight: '700',
+    color: '#000000',
+  },
+  notificationContent: {
+    fontSize: 14,
+    color: '#495057',
+    lineHeight: 20,
+  },
+  emptyNotifications: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 16,
+    fontWeight: '500',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
+  },
 }); 

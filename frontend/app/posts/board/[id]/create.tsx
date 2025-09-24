@@ -44,7 +44,7 @@ export default function CreateBoardPostScreen() {
   const fetchBoardInfo = async () => {
     try {
       setBoardLoading(true);
-      const response = await fetch(`https://camsaw.kro.kr/boards/${id}`);
+      const response = await fetch(`https://hoseolife.kro.kr/boards/${id}`);
       if (response.ok) {
         const boardData = await response.json();
         setBoard(boardData);
@@ -163,7 +163,7 @@ export default function CreateBoardPostScreen() {
 
       console.log('게시글 생성 시도:', postData);
 
-      const postResponse = await fetch('https://camsaw.kro.kr/posts/', {
+      const postResponse = await fetch('https://hoseolife.kro.kr/posts/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -214,7 +214,7 @@ export default function CreateBoardPostScreen() {
             } as any);
             formData.append('post_id', postId.toString());
 
-            const imageResponse = await fetch('https://camsaw.kro.kr/posts/upload-image', {
+            const imageResponse = await fetch('https://hoseolife.kro.kr/posts/upload-image', {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -249,7 +249,7 @@ export default function CreateBoardPostScreen() {
         if (uploadedImageUrls.length > 0) {
           console.log('게시글에 이미지 URL 업데이트 중...');
           
-          const updateResponse = await fetch('https://camsaw.kro.kr/posts/' + postId, {
+          const updateResponse = await fetch('https://hoseolife.kro.kr/posts/' + postId, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',

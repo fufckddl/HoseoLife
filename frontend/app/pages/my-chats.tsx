@@ -9,33 +9,69 @@ import {
   SafeAreaView,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useGroupStore } from '../stores/groupStore';
+import { websocketService } from '../services/websocketService';
+import { TopBar } from '../components/layout/TopBar';
+import { BottomBar } from '../components/layout/BottomBar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function MyChatsScreen() {
   const router = useRouter();
-  const { myRooms, loading, error, fetchMyRooms, clearError } = useGroupStore();
-  const [activeTab, setActiveTab] = useState<'dms' | 'groups'>('dms');
+  const { 
+    myRooms, 
+    availableGroups, // 🆕 참여가능한 그룹 목록 추가
+    loading, 
+    error, 
+    fetchMyRooms, 
+    refreshMyRooms, 
+    fetchAvailableGroups, // 🆕 참여가능한 그룹 조회 함수 추가
+    joinGroup, // 🆕 그룹 참여 함수 추가
+    clearError 
+  } = useGroupStore();
+  const [activeTab, setActiveTab] = useState<'my-chats' | 'available-groups'>('my-chats');
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     loadMyRooms();
   }, []);
 
+  // 🆕 탭 변경 시 데이터 로드
+  useEffect(() => {
+    if (activeTab === 'available-groups') {
+      loadAvailableGroups();
+    }
+  }, [activeTab]);
+
   // 화면이 포커스될 때마다 채팅방 목록 새로고침
   useFocusEffect(
     useCallback(() => {
       console.log('🔄 my-chats 화면 포커스 - 채팅방 목록 새로고침');
-      loadMyRooms();
+      refreshMyRooms();
     }, [])
   );
 
   const loadMyRooms = async () => {
     try {
-      await fetchMyRooms();
+      console.log('🔄 loadMyRooms 시작');
+      await refreshMyRooms();
+      console.log('✅ loadMyRooms 완료');
     } catch (error) {
-      console.error('채팅방 목록 로드 실패:', error);
+      console.error('❌ 채팅방 목록 로드 실패:', error);
+    }
+  };
+
+  // 🆕 참여가능한 그룹 목록 로드
+  const loadAvailableGroups = async () => {
+    try {
+      console.log('🔄 loadAvailableGroups 시작');
+      await fetchAvailableGroups();
+      console.log('✅ loadAvailableGroups 완료');
+    } catch (error) {
+      console.error('❌ 참여가능한 그룹 목록 로드 실패:', error);
     }
   };
 
@@ -48,46 +84,134 @@ export default function MyChatsScreen() {
     }
   };
 
-  const renderRoomItem = ({ item }: { item: any }) => (
+  const renderRoomItem = ({ item }: { item: any }) => {
+    // 그룹 채팅방의 경우 S3에서 이미지 URL 생성
+    const getImageUrl = () => {
+      if (item.type === 'group' && item.roomId) {
+        // 그룹 채팅방의 경우 S3 group 폴더에서 이미지 가져오기
+        return `https://camsaw-assets.s3.ap-northeast-2.amazonaws.com/group/${item.roomId}/logo.png`;
+      }
+      return item.imageUrl;
+    };
+
+    const imageUrl = getImageUrl();
+
+    return (
+      <TouchableOpacity
+        style={styles.roomItem}
+        onPress={() => handleRoomPress(item)}
+      >
+        {/* 🆕 왼쪽: 채팅방 이미지 또는 아이콘 */}
+        <View style={styles.leftImageContainer}>
+          {imageUrl ? (
+            <Image 
+              source={{ uri: imageUrl }} 
+              style={styles.roomImage}
+              onError={() => {
+                // 이미지 로드 실패 시 기본 아이콘 표시
+                console.log(`이미지 로드 실패: ${imageUrl}`);
+              }}
+            />
+          ) : (
+            <View style={styles.roomIconContainer}>
+              <Ionicons 
+                name={item.type === 'group' ? 'people' : 'person'} 
+                size={24} 
+                color="#FFFFFF" 
+              />
+            </View>
+            )}
+          {/* 안읽은 메시지 배지 */}
+          {item.unread > 0 && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadText}>{item.unread}</Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.roomInfo}>
+          <View style={styles.roomTitleContainer}>
+            <Text style={styles.roomName}>{item.name}</Text>
+          </View>
+          {item.lastMessage ? (
+            <Text style={styles.lastMessage} numberOfLines={1}>
+              {/* 🆕 사진 메시지 처리 */}
+              {item.lastMessage.includes('[이미지]') || item.lastMessage.includes('image') ? 
+                `${item.lastMessageSender || '누군가'}님이 사진을 보냈습니다.` : 
+                item.lastMessage
+              }
+            </Text>
+          ) : (
+            <Text style={styles.noMessage}>메시지가 없습니다</Text>
+          )}
+        </View>
+        
+        <View style={styles.roomMeta}>
+          <Ionicons name="chevron-forward" size={20} color="#CCCCCC" />
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderAvailableGroupItem = ({ item }: { item: any }) => (
     <TouchableOpacity
       style={styles.roomItem}
-      onPress={() => handleRoomPress(item)}
+      onPress={() => handleJoinGroup(item)}
     >
       <View style={styles.roomInfo}>
-        <Text style={styles.roomName}>{item.name}</Text>
-        {item.lastMessage ? (
-          <Text style={styles.lastMessage} numberOfLines={1}>
-            {item.lastMessage}
-          </Text>
-        ) : (
-          <Text style={styles.noMessage}>메시지가 없습니다</Text>
-        )}
+        <View style={styles.roomTitleContainer}>
+          <Ionicons 
+            name="people" 
+            size={20} 
+            color="#2D3A4A" 
+          />
+          <Text style={styles.roomName}>{item.name}</Text>
+        </View>
+        <Text style={styles.lastMessage} numberOfLines={2}>
+          {item.description || '그룹 설명이 없습니다'}
+        </Text>
+        <Text style={styles.groupMeta}>
+          멤버 {item.memberCount || 0}명 • 그룹 채팅
+        </Text>
       </View>
       
       <View style={styles.roomMeta}>
-        {item.unread > 0 && (
-          <View style={styles.unreadBadge}>
-            <Text style={styles.unreadText}>{item.unread}</Text>
-          </View>
-        )}
-        <Ionicons name="chevron-forward" size={20} color="#CCCCCC" />
+        <TouchableOpacity 
+          style={styles.joinButton}
+          onPress={() => handleJoinGroup(item)}
+        >
+          <Text style={styles.joinButtonText}>참여</Text>
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
 
-  const renderEmptyState = (type: 'dms' | 'groups') => (
+  const handleJoinGroup = async (group: any) => {
+    try {
+      console.log('🎯 그룹 참여 시도:', group);
+      await joinGroup(group.roomId);
+      console.log('✅ 그룹 참여 성공');
+      
+      // 참여 후 내 채팅방 탭으로 이동
+      setActiveTab('my-chats');
+    } catch (error) {
+      console.error('❌ 그룹 참여 실패:', error);
+    }
+  };
+
+  const renderEmptyState = (type: 'my-chats' | 'available-groups') => (
     <View style={styles.emptyContainer}>
       <Ionicons 
-        name={type === 'dms' ? 'chatbubble-outline' : 'people-outline'} 
+        name={type === 'my-chats' ? 'chatbubbles-outline' : 'people-outline'} 
         size={64} 
         color="#CCCCCC" 
       />
       <Text style={styles.emptyText}>
-        {type === 'dms' ? '1:1 채팅' : '그룹 채팅'}이 없습니다
+        {type === 'my-chats' ? '채팅방이 없습니다' : '참여가능한 그룹이 없습니다'}
       </Text>
       <Text style={styles.emptySubtext}>
-        {type === 'dms' 
-          ? '게시글이나 댓글에서 사용자와 1:1 채팅을 시작해보세요' 
+        {type === 'my-chats' 
+          ? '게시글이나 댓글에서 사용자와 채팅을 시작해보세요' 
           : '새로운 그룹에 참여하거나 그룹을 생성해보세요'
         }
       </Text>
@@ -95,46 +219,47 @@ export default function MyChatsScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       {/* 상단 바 */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000000" />
-        </TouchableOpacity>
-        <Text style={styles.title}>내 채팅방</Text>
-        <View style={styles.placeholder} />
-      </View>
+      <TopBar 
+        title="내 채팅방"
+        showRefreshButton={true}
+        showLogo={false}
+        onRefreshPress={refreshMyRooms}
+      />
 
       {/* 탭 버튼 */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'dms' && styles.activeTabButton]}
-          onPress={() => setActiveTab('dms')}
+          style={[styles.tabButton, activeTab === 'my-chats' && styles.activeTabButton]}
+          onPress={() => setActiveTab('my-chats')}
         >
           <Ionicons 
-            name="chatbubble-outline" 
+            name="chatbubbles-outline" 
             size={20} 
-            color={activeTab === 'dms' ? '#2D3A4A' : '#666666'} 
+            color={activeTab === 'my-chats' ? '#2D3A4A' : '#666666'} 
           />
-          <Text style={[styles.tabText, activeTab === 'dms' && styles.activeTabText]}>
-            1:1 채팅 ({myRooms.dms.length})
+          <Text style={[styles.tabText, activeTab === 'my-chats' && styles.activeTabText]}>
+            내 채팅방 ({(myRooms.dms?.length || 0) + (myRooms.groups?.length || 0)})
           </Text>
         </TouchableOpacity>
         
         <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'groups' && styles.activeTabButton]}
-          onPress={() => setActiveTab('groups')}
+          style={[styles.tabButton, activeTab === 'available-groups' && styles.activeTabButton]}
+          onPress={() => setActiveTab('available-groups')}
         >
           <Ionicons 
             name="people-outline" 
             size={20} 
-            color={activeTab === 'groups' ? '#2D3A4A' : '#666666'} 
+            color={activeTab === 'available-groups' ? '#2D3A4A' : '#666666'} 
           />
-          <Text style={[styles.tabText, activeTab === 'groups' && styles.activeTabText]}>
-            그룹 ({myRooms.groups.length})
+          <Text style={[styles.tabText, activeTab === 'available-groups' && styles.activeTabText]}>
+            참여가능 그룹채팅방
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* 참여가능 그룹 상단 버튼 */}
 
       {/* 내용 */}
       <View style={styles.content}>
@@ -153,32 +278,50 @@ export default function MyChatsScreen() {
             <Text style={styles.loadingText}>로딩 중...</Text>
           </View>
         ) : (
-          <FlatList
-            data={activeTab === 'dms' ? (myRooms?.dms || []) : (myRooms?.groups || [])}
-            renderItem={renderRoomItem}
-            keyExtractor={(item) => `${item.roomId}-${item.type}`}
-            refreshControl={
-              <RefreshControl refreshing={loading} onRefresh={loadMyRooms} />
-            }
-            contentContainerStyle={styles.listContainer}
-            ListEmptyComponent={() => renderEmptyState(activeTab)}
-          />
+          <>
+            {activeTab === 'my-chats' ? (
+              <FlatList
+                data={[...(myRooms?.dms || []), ...(myRooms?.groups || [])]}
+                renderItem={renderRoomItem}
+                keyExtractor={(item) => `${item.roomId}-${item.type}`}
+                refreshControl={
+                  <RefreshControl refreshing={loading} onRefresh={refreshMyRooms} />
+                }
+                contentContainerStyle={styles.listContainer}
+                ListEmptyComponent={() => renderEmptyState('my-chats')}
+              />
+            ) : (
+              <FlatList
+                data={availableGroups} // 🔧 실제 참여가능한 그룹 데이터 사용
+                renderItem={renderAvailableGroupItem}
+                keyExtractor={(item) => `available-${item.roomId}`} // 🔧 roomId 사용
+                refreshControl={
+                  <RefreshControl refreshing={loading} onRefresh={loadAvailableGroups} /> // 🔧 적절한 새로고침 함수 사용
+                }
+                contentContainerStyle={styles.listContainer}
+                ListEmptyComponent={() => renderEmptyState('available-groups')}
+              />
+            )}
+          </>
         )}
       </View>
 
       {/* 하단 버튼 */}
       <View style={styles.bottomButtons}>
-        {activeTab === 'groups' && (
+        {activeTab === 'available-groups' && (
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => router.push('/pages/available-groups')}
+            onPress={() => router.push('/pages/group-create')}
           >
             <Ionicons name="add" size={20} color="#FFFFFF" />
-            <Text style={styles.actionButtonText}>그룹 참여/생성</Text>
+            <Text style={styles.actionButtonText}>그룹 생성</Text>
           </TouchableOpacity>
         )}
       </View>
-    </SafeAreaView>
+
+      {/* 하단 바 */}
+      <BottomBar activeTab="chat" />
+    </View>
   );
 }
 
@@ -186,27 +329,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  backButton: {
-    padding: 5,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333333',
-    fontFamily: 'GmarketSans',
-  },
-  placeholder: {
-    width: 34,
   },
   tabContainer: {
     flexDirection: 'row',
@@ -284,15 +406,45 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  // 🆕 왼쪽 이미지 컨테이너
+  leftImageContainer: {
+    position: 'relative',
+    width: 50,
+    height: 50,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // 🆕 채팅방 이미지 (원형)
+  roomImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    resizeMode: 'cover',
+  },
+  // 🆕 기본 아이콘 컨테이너 (원형)
+  roomIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#2D3A4A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   roomInfo: {
     flex: 1,
+  },
+  roomTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   roomName: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333333',
-    marginBottom: 4,
     fontFamily: 'GmarketSans',
+    flex: 1,
   },
   lastMessage: {
     fontSize: 14,
@@ -311,16 +463,22 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   unreadBadge: {
-    backgroundColor: '#FF6B6B',
-    borderRadius: 10,
-    minWidth: 20,
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#FF3B30', // 🔧 더 진한 빨간색 (카카오톡 스타일)
+    borderRadius: 10, // 🔧 더 둥근 모서리
+    minWidth: 20, // 🔧 크기 조정
     height: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 4, // 🆕 좌우 패딩 조정
+    borderWidth: 2,
+    borderColor: '#FFFFFF', // 흰색 테두리 추가
   },
   unreadText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11, // 🔧 폰트 크기 조정
     fontWeight: 'bold',
     fontFamily: 'GmarketSans',
   },
@@ -352,7 +510,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2D3A4A',
+    backgroundColor: '#000000',
     paddingVertical: 15,
     borderRadius: 8,
     gap: 8,
@@ -360,6 +518,47 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'GmarketSans',
+  },
+  topActionBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  createGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 5,
+  },
+  createGroupButtonText: {
+    color: '#2D3A4A',
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'GmarketSans',
+  },
+  groupMeta: {
+    fontSize: 12,
+    color: '#999999',
+    marginTop: 4,
+    fontFamily: 'GmarketSans',
+  },
+  joinButton: {
+    backgroundColor: '#2D3A4A',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  joinButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: 'bold',
     fontFamily: 'GmarketSans',
   },

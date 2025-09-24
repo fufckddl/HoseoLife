@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = "https://camsaw.kro.kr";
+const API_BASE_URL = "https://hoseolife.kro.kr";
 
 export interface UserInfo {
   id: number;
@@ -279,6 +279,53 @@ class UserService {
       }
     } catch (error) {
       console.error('FCM 토큰 업데이트 오류:', error);
+      throw error;
+    }
+  }
+
+  // 🆕 FCM 토큰 제거 (로그아웃 시 호출)
+  async clearFCMToken(): Promise<void> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/users/clear-fcm-token`, {
+        method: 'POST',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'FCM 토큰 제거에 실패했습니다.');
+      }
+      
+      console.log('FCM 토큰 서버에서 제거 완료');
+    } catch (error) {
+      console.error('FCM 토큰 제거 오류:', error);
+      throw error;
+    }
+  }
+
+  // 🆕 회원탈퇴 (데이터 익명화)
+  async deactivateAccount(): Promise<{ message: string; deactivated_at: string }> {
+    try {
+      console.log('🗑️ 회원탈퇴 요청 시작');
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/users/deactivate`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '회원탈퇴에 실패했습니다.');
+      }
+      
+      const result = await response.json();
+      console.log('✅ 회원탈퇴 완료:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ 회원탈퇴 오류:', error);
       throw error;
     }
   }

@@ -66,6 +66,20 @@ export default function ReportModal({
     try {
       setSubmitting(true);
       
+      // 중복 신고 확인
+      try {
+        const duplicateCheck = await reportService.checkDuplicate(targetType, targetId);
+        if (duplicateCheck.is_duplicate) {
+          const targetTypeText = getTargetTypeText();
+          Alert.alert('알림', `이미 신고한 ${targetTypeText}입니다.`);
+          setSubmitting(false);
+          return;
+        }
+      } catch (error) {
+        console.error('중복 신고 확인 실패:', error);
+        // 중복 확인 실패 시에도 신고는 진행
+      }
+      
       const reportData: ReportCreateData = {
         target_type: targetType,
         target_id: targetId,
@@ -85,9 +99,19 @@ export default function ReportModal({
           onClose();
         }}]
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('신고 제출 실패:', error);
-      Alert.alert('오류', '신고 제출에 실패했습니다. 다시 시도해주세요.');
+      
+      // 이미 신고한 대상인 경우 구체적인 메시지 표시
+      if (error.response?.data?.detail === '이미 신고한 대상입니다.') {
+        const targetTypeText = getTargetTypeText();
+        Alert.alert('알림', `이미 신고한 ${targetTypeText}입니다.`);
+      } else if (error.response?.data?.detail) {
+        // 백엔드에서 제공하는 구체적인 에러 메시지 표시
+        Alert.alert('오류', `신고 제출 실패: ${error.response.data.detail}`);
+      } else {
+        Alert.alert('오류', '신고 제출에 실패했습니다. 다시 시도해주세요.');
+      }
     } finally {
       setSubmitting(false);
     }

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { postService, PostListResponse } from '../services/postService';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -86,7 +87,7 @@ export default function PopularPostsScreen() {
     >
       <View style={styles.postHeader}>
         <View style={styles.authorInfo}>
-          <Text style={styles.authorName}>{item.author_nickname}</Text>
+          <Text style={styles.authorName}>{getDisplayNickname(item.author_nickname)}</Text>
           <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
         </View>
         <View style={styles.heartContainer}>

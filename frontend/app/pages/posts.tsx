@@ -16,6 +16,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { postService, PostListResponse } from '../services/postService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 
 export default function PostsScreen() {
   const router = useRouter();
@@ -166,7 +167,7 @@ export default function PostsScreen() {
   const renderPost = ({ item }: { item: PostListResponse }) => {
     console.log('게시글 렌더링:', {
       id: item.id,
-      author: item.author_nickname,
+      author: getDisplayNickname(item.author_nickname),
       profileImage: item.author_profile_image_url
     });
     
@@ -180,21 +181,25 @@ export default function PostsScreen() {
         <View style={styles.postHeader}>
           <View style={styles.postInfo}>
             <View style={styles.authorContainer}>
-              {item.author_profile_image_url ? (
-                <Image 
-                  source={{ 
-                    uri: item.author_profile_image_url,
-                    cache: 'reload'
-                  }} 
-                  style={styles.authorProfileImage} 
-                />
-              ) : (
-                <Image 
-                  source={require('../../assets/images/camsaw_human.png')} 
-                  style={styles.authorProfileImage} 
-                />
-              )}
-              <Text style={styles.authorText}>{item.author_nickname}</Text>
+              {getDisplayNickname(item.author_nickname) !== '(알수없음)' ? (
+                item.author_profile_image_url ? (
+                  <Image 
+                    source={{ 
+                      uri: item.author_profile_image_url,
+                      cache: 'reload'
+                    }} 
+                    style={styles.authorProfileImage} 
+                  />
+                ) : (
+                  <Image 
+                    source={require('../../assets/images/camsaw_human.png')} 
+                    style={styles.authorProfileImage} 
+                  />
+                )
+              ) : null}
+              <Text style={styles.authorText}>
+                {getDisplayNickname(item.author_nickname)}
+              </Text>
             </View>
             <View style={[styles.categoryTag, { backgroundColor: getCategoryColor(item.category) }]}>
               <Text style={styles.categoryText}>{item.category}</Text>
@@ -269,9 +274,7 @@ export default function PostsScreen() {
       
       {/* 헤더 */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/tabs/post-list')}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
+        <View style={styles.emptySpace} />
         <Text style={styles.headerTitle}>게시글</Text>
         <TouchableOpacity style={styles.searchButton} onPress={() => router.push('/pages/search')}>
           <Ionicons name="search" size={24} color="#FFFFFF" />
@@ -326,6 +329,30 @@ export default function PostsScreen() {
         showsVerticalScrollIndicator={false}
       />
       
+      {/* 하단 바 */}
+      <View style={styles.bottomBar}>
+        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/post-list')}>
+          <Ionicons name="list" size={25}/>
+          <Text style={styles.bottomIconText}>게시글</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/post-list')}>
+          <Ionicons name="location" size={25} />
+          <Text style={styles.bottomIconText}>위치</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/home')}>
+          <Ionicons name="home" size={25} />
+          <Text style={styles.bottomIconText}>홈</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/profile')}>
+          <Ionicons name="chatbox" size={25} />
+          <Text style={styles.bottomIconText}>채팅</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/profile')}>
+          <Ionicons name="person" size={25}  />
+          <Text style={styles.bottomIconText}>프로필</Text>
+        </TouchableOpacity>
+      </View>
+      
       {/* 하단 노치 영역 */}
       <View style={[styles.bottomNotch, { height: insets.bottom }]} />
     </View>
@@ -347,12 +374,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 80,
   },
-  backButton: {
-    padding: 8,
+  emptySpace: {
     height: 45,
-    width: 45,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 45, // 🆕 뒤로가기 버튼과 동일한 크기의 빈 공간
   },
   headerTitle: {
     fontSize: 24,
@@ -528,5 +552,26 @@ const styles = StyleSheet.create({
   },
   bottomNotch: {
     backgroundColor: '#FFFFFF', // 하단 노치 색상
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    justifyContent: 'space-between',
+    color: '#000000',
+  },
+  bottomIcon: { 
+    flex: 1,
+    alignItems: 'center', 
+    justifyContent: 'center',
+    paddingVertical: 5,
+  },
+  bottomIconText: {
+    fontSize: 10,
+    color: '#000000',
+    marginTop: 2,
+    fontWeight: '500',
   },
 }); 

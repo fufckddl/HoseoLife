@@ -17,3 +17,4 @@ class Board(Base):
     # Relationships
     creator = relationship("User")
     posts = relationship("Post", back_populates="board", cascade="all, delete-orphan")
+    # 🔧 notices 관계 제거 (순환 참조 문제 해결, 직접 SQL 사용)

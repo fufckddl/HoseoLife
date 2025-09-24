@@ -5,18 +5,22 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { userService } from '../services/userService';
 import { useAuth } from '../contexts/AuthContext';
+import { BottomBar } from '../components/layout/BottomBar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { notificationsEnabled, toggleNotifications, loadNotificationSettings } = useAuth();
+  const { notificationsEnabled, toggleNotifications, loadNotificationSettings, deactivateAccount } = useAuth();
   const [userInfo, setUserInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [updatingNotifications, setUpdatingNotifications] = useState(false);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     loadUserInfo();
@@ -97,7 +101,11 @@ export default function ProfileScreen() {
           onPress: async () => {
             try {
               await userService.logout();
-              router.push('/tabs/home');// 홈 화면으로 이동
+              // 사용자 정보 초기화
+              setUserInfo(null);
+              setIsAdmin(false);
+              // 로그인 페이지로 이동
+              router.push('/auth/login');
             } catch (error) {
               console.error('로그아웃 실패:', error);
               Alert.alert('오류', '로그아웃에 실패했습니다.');
@@ -111,7 +119,7 @@ export default function ProfileScreen() {
   const handleWithdraw = async () => {
     Alert.alert(
       '회원 탈퇴',
-      '정말 회원 탈퇴를 진행하시겠습니까?\n\n탈퇴 시 모든 개인정보가 삭제되며, 복구할 수 없습니다.',
+      '정말 회원 탈퇴를 진행하시겠습니까?\n\n⚠️ 탈퇴 후:\n• 개인정보는 삭제됩니다\n• 게시글/댓글은 "(알수없음)"으로 익명 처리됩니다\n• 채팅방에서 자동으로 나가집니다',
       [
         { text: '취소', style: 'cancel' },
         {
@@ -119,15 +127,17 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await userService.withdraw();
+              console.log('🗑️ 회원탈퇴 처리 시작');
+              await deactivateAccount(); // 🔧 새로운 탈퇴 함수 사용
+              
               Alert.alert(
                 '탈퇴 완료',
-                '회원 탈퇴가 완료되었습니다.',
+                '회원 탈퇴가 완료되었습니다.\n게시글과 댓글은 익명으로 유지됩니다.',
                 [
                   {
                     text: '확인',
                     onPress: () => {
-                      router.push('/tabs/home');
+                      router.push('/auth/login'); // 🔧 로그인 페이지로 이동
                     }
                   }
                 ]
@@ -225,7 +235,7 @@ export default function ProfileScreen() {
       // 먼저 서버 연결 테스트
       console.log('서버 연결 테스트 시작...');
       try {
-        const testResponse = await fetch('https://camsaw.kro.kr/users/upload-profile-image', {
+        const testResponse = await fetch('https://hoseolife.kro.kr/users/upload-profile-image', {
           method: 'GET',
           headers: {
             'Accept': 'application/json',
@@ -238,7 +248,7 @@ export default function ProfileScreen() {
 
       console.log('FormData 생성 완료');
 
-      const response = await fetch('https://camsaw.kro.kr/users/upload-profile-image', {
+      const response = await fetch('https://hoseolife.kro.kr/users/upload-profile-image', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -305,13 +315,13 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       {/* 상단 바 */}
-      <View style={styles.topBar}>
-        {/* 왼쪽: 뒤로가기 버튼 */}
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000000" />
-        </TouchableOpacity>
+      <View style={[styles.topBar, { paddingTop: insets.top }]}>
+        {/* 가운데: 타이틀 - 완전 중앙 정렬 */}
+        <View style={styles.titleContainer}>
+          <Text style={styles.titleText}>프로필</Text>
+        </View>
       </View>
 
       {/* 메인 콘텐츠 */}
@@ -377,7 +387,7 @@ export default function ProfileScreen() {
             <Switch
               value={notificationsEnabled}
               onValueChange={handleNotificationToggle}
-              trackColor={{ false: '#E0E0E0', true: '#2D3A4A' }}
+              trackColor={{ false: '#000000', true: '#000000' }}
               thumbColor={notificationsEnabled ? '#ffffff' : '#f4f3f4'}
               disabled={updatingNotifications}
             />
@@ -394,7 +404,9 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.additionalItem}>
             <Text style={styles.additionalText}>앱버전</Text>
-            <Text style={styles.versionText}>1.0.0</Text>
+            <Text style={styles.versionText}>
+              {Constants.expoConfig?.version || '알수없음'}
+            </Text>
           </View>
           <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/contact')}>
             <Text style={styles.additionalText}>문의하기</Text>
@@ -420,22 +432,13 @@ export default function ProfileScreen() {
                     <Text style={styles.additionalText}>내가 작성한 댓글</Text>
                   </TouchableOpacity>
                   
-                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/my-chats' as any)}>
-                    <Text style={styles.additionalText}>내 채팅방</Text>
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/my-hearts' as any)}>
+                    <Text style={styles.additionalText}>내가 좋아요한 게시글</Text>
                   </TouchableOpacity>
-                  
-                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/available-groups' as any)}>
-                    <Text style={styles.additionalText}>그룹 채팅방 참여하기</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/group-create' as any)}>
-                    <Text style={styles.additionalText}>그룹 생성 요청</Text>
-                  </TouchableOpacity>
-
-          
           {/* 관리자 메뉴 */}
               {isAdmin && (
       <>
+        <View style={{ borderBottomWidth: 1, borderBottomColor: '#E0E0E0', marginVertical: 10 }} />
         <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/admin/contact-management')}>
           <Text style={styles.additionalText}>문의 관리</Text>
         </TouchableOpacity>
@@ -491,18 +494,8 @@ export default function ProfileScreen() {
       </Modal>
 
       {/* 하단 바 */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/post-list')}>
-          <Ionicons name="list" size={30} color="#000000" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.bottomIcon} onPress={() => router.push('/tabs/home')}>
-          <Ionicons name="home" size={30} color="#000000" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.bottomIcon}>
-          <Ionicons name="person" size={30} color="#000000" />
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+      <BottomBar activeTab="profile" />
+    </View>
   );
 }
 
@@ -519,14 +512,26 @@ const styles = StyleSheet.create({
     fontFamily: 'GmarketSans',
   },
   topBar: {
-    flexDirection: 'row',
+    justifyContent: 'center', // 🔧 중앙 정렬
     alignItems: 'center',
     backgroundColor: '#ffffff',
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 30, // 🔧 높이 유지 (8 → 30)
+    borderBottomWidth: 1, // 🆕 구분선 추가
+    borderBottomColor: '#E0E0E0',
   },
-  backButton: {
-    padding: 8,
+  titleContainer: {
+    top: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 8, // 🆕 하단 여백 추가
+  },
+  titleText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000000',
+    fontFamily: 'GmarketSans',
+    textAlign: 'center', // 🆕 텍스트 중앙 정렬
   },
   topLogo: { width: 40, height: 40 },
   topTitle: {
@@ -657,20 +662,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666666',
     fontFamily: 'GmarketSans',
-  },
-  bottomBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    justifyContent: 'space-between',
-  },
-  bottomIcon: { 
-    flex: 1, 
-    alignItems: 'center', 
-    justifyContent: 'center',
-    paddingVertical: 5,
   },
 
   modalOverlay: {

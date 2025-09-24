@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Linking, Image } from 'react-
 import { useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { getDisplayNickname } from '../../utils/userUtils'; // 🆕 유틸리티 함수 import
 
 export default function PostWebFallback() {
   const { postId, shareCode } = useLocalSearchParams();
@@ -221,7 +222,7 @@ export default function PostWebFallback() {
                 <Text style={styles.categoryText}>{postInfo.category}</Text>
               </View>
               <View style={styles.authorTag}>
-                <Text style={styles.authorText}>{postInfo.author_nickname}</Text>
+                <Text style={styles.authorText}>{getDisplayNickname(postInfo.author_nickname)}</Text>
               </View>
             </View>
 

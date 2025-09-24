@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { postService } from '../services/postService';
 import { useAuth } from '../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 
 interface HeartPost {
   id: number;
@@ -85,7 +86,7 @@ export default function MyHeartsPage() {
               <Ionicons name="person" size={16} color="#666" />
             </View>
           )}
-          <Text style={styles.authorName}>{item.author_nickname || '알 수 없음'}</Text>
+          <Text style={styles.authorName}>{getDisplayNickname(item.author_nickname)}</Text>
           <Text style={styles.postDate}>{formatDate(item.created_at)}</Text>
         </View>
         <View style={styles.categoryBadge}>

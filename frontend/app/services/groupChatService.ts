@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GroupRequest, AvailableGroup, MyRooms } from '../stores/groupStore';
 
-const API_BASE_URL = 'https://camsaw.kro.kr';
+const API_BASE_URL = 'https://hoseolife.kro.kr';
 
 class GroupChatService {
   private async getAuthHeaders(): Promise<Record<string, string>> {
@@ -14,20 +14,58 @@ class GroupChatService {
   }
 
   // 그룹 생성 요청
-  async createGroupRequest(name: string, description?: string): Promise<GroupRequest> {
+  async createGroupRequest(name: string, description?: string, imageUrl?: string | null): Promise<GroupRequest> {
     const headers = await this.getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/chat/groups/requests`, {
+    const url = `${API_BASE_URL}/chat/groups/requests`;
+    const body = JSON.stringify({ 
+      name, 
+      description,
+      image_url: imageUrl  // 🆕 이미지 URL 추가
+    });
+    
+    console.log('🔗 그룹 생성 요청:', {
+      url,
       method: 'POST',
       headers,
-      body: JSON.stringify({ name, description }),
+      body
     });
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || '그룹 생성 요청에 실패했습니다');
+      console.log('📊 응답 상태:', response.status);
+      console.log('📊 응답 헤더:', response.headers);
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error('❌ API 오류 응답:', responseText);
+        
+        try {
+          const errorData = JSON.parse(responseText);
+          throw new Error(errorData.detail || '그룹 생성 요청에 실패했습니다');
+        } catch (parseError) {
+          console.error('❌ JSON 파싱 실패:', parseError);
+          throw new Error(`API 오류 (${response.status}): ${responseText}`);
+        }
+      }
+
+      const responseText = await response.text();
+      console.log('✅ API 성공 응답:', responseText);
+      
+      try {
+        return JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ 성공 응답 JSON 파싱 실패:', parseError);
+        throw new Error('서버 응답을 파싱할 수 없습니다');
+      }
+    } catch (error) {
+      console.error('❌ 그룹 생성 요청 실패:', error);
+      throw error;
     }
-
-    return response.json();
   }
 
   // 대기 중인 그룹 요청 목록 조회 (관리자 전용)
@@ -81,17 +119,49 @@ class GroupChatService {
   // 참여 가능한 그룹 목록 조회
   async fetchAvailableGroups(): Promise<AvailableGroup[]> {
     const headers = await this.getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/chat/rooms/available?type=group`, {
+    const url = `${API_BASE_URL}/chat/rooms/available?type=group`;
+    
+    console.log('🔗 참여 가능한 그룹 조회:', {
+      url,
       method: 'GET',
-      headers,
+      headers
     });
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || '그룹 목록 조회에 실패했습니다');
+      console.log('📊 응답 상태:', response.status);
+      console.log('📊 응답 헤더:', response.headers);
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error('❌ API 오류 응답:', responseText);
+        
+        try {
+          const errorData = JSON.parse(responseText);
+          throw new Error(errorData.detail || '그룹 목록 조회에 실패했습니다');
+        } catch (parseError) {
+          console.error('❌ JSON 파싱 실패:', parseError);
+          throw new Error(`API 오류 (${response.status}): ${responseText}`);
+        }
+      }
+
+      const responseText = await response.text();
+      console.log('✅ API 성공 응답:', responseText);
+      
+      try {
+        return JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ 성공 응답 JSON 파싱 실패:', parseError);
+        throw new Error('서버 응답을 파싱할 수 없습니다');
+      }
+    } catch (error) {
+      console.error('❌ 참여 가능한 그룹 조회 실패:', error);
+      throw error;
     }
-
-    return response.json();
   }
 
   // 그룹 참여
@@ -136,6 +206,53 @@ class GroupChatService {
     console.log('💬 DM 수:', data?.dms?.length || 0);
     
     return data;
+  }
+
+  // 채팅방 정보 조회
+  async getRoomInfo(roomId: number): Promise<{ room_id: number; name: string; type: string; description?: string }> {
+    const headers = await this.getAuthHeaders();
+    const url = `${API_BASE_URL}/chat/rooms/${roomId}/info`;
+    
+    console.log('🔗 채팅방 정보 조회:', {
+      url,
+      method: 'GET',
+      headers
+    });
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+      });
+
+      console.log('📊 응답 상태:', response.status);
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error('❌ API 오류 응답:', responseText);
+        
+        try {
+          const errorData = JSON.parse(responseText);
+          throw new Error(errorData.detail || '채팅방 정보 조회에 실패했습니다');
+        } catch (parseError) {
+          console.error('❌ JSON 파싱 실패:', parseError);
+          throw new Error(`API 오류 (${response.status}): ${responseText}`);
+        }
+      }
+
+      const responseText = await response.text();
+      console.log('✅ API 성공 응답:', responseText);
+      
+      try {
+        return JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ 성공 응답 JSON 파싱 실패:', parseError);
+        throw new Error('서버 응답을 파싱할 수 없습니다');
+      }
+    } catch (error) {
+      console.error('❌ 채팅방 정보 조회 실패:', error);
+      throw error;
+    }
   }
 }
 

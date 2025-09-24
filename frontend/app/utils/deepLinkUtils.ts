@@ -96,29 +96,39 @@ export function handleDeepLinkNavigation(data: DeepLinkData): void {
 export function setupDeepLinkListener(): () => void {
   console.log('🔗 딥링크 리스너 설정 시작');
   
-  // 앱이 실행 중일 때 받는 딥링크 처리
+  // 앱이 실행 중일 때 받는 딥링크 처리 (안전하게)
   const linkingSubscription = Linking.addEventListener('url', (event) => {
-    console.log('🔗 딥링크 수신:', event.url);
-    
-    const deepLinkData = parseDeepLink(event.url);
-    if (deepLinkData) {
-      handleDeepLinkNavigation(deepLinkData);
+    try {
+      console.log('🔗 딥링크 수신:', event.url);
+      
+      const deepLinkData = parseDeepLink(event.url);
+      if (deepLinkData) {
+        handleDeepLinkNavigation(deepLinkData);
+      }
+    } catch (error) {
+      console.error('❌ 딥링크 처리 실패 (무시):', error);
     }
   });
   
-  // 앱이 종료된 상태에서 딥링크로 실행될 때 처리
+  // 앱이 종료된 상태에서 딥링크로 실행될 때 처리 (안전하게)
   Linking.getInitialURL().then((url) => {
     if (url) {
       console.log('🔗 초기 딥링크:', url);
       
       // 앱이 완전히 로드될 때까지 잠시 대기
       setTimeout(() => {
-        const deepLinkData = parseDeepLink(url);
-        if (deepLinkData) {
-          handleDeepLinkNavigation(deepLinkData);
+        try {
+          const deepLinkData = parseDeepLink(url);
+          if (deepLinkData) {
+            handleDeepLinkNavigation(deepLinkData);
+          }
+        } catch (deepLinkError) {
+          console.error('❌ 초기 딥링크 처리 실패 (무시):', deepLinkError);
         }
       }, 2000); // 2초 대기
     }
+  }).catch((error) => {
+    console.error('❌ 초기 딥링크 URL 조회 실패 (무시):', error);
   });
   
   // 리스너 정리 함수 반환

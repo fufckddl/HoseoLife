@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { postService, PostListResponse } from '../services/postService';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 
 interface RecentSearch {
   id: number;
@@ -152,29 +153,32 @@ export default function SearchScreen() {
       style={styles.searchResultCard}
       onPress={() => router.push(`/pages/post-detail?id=${post.id}`)}
     >
-      <View style={styles.searchResultHeader}>
-        <View style={styles.categoryBadge}>
-          <Text style={styles.categoryText}>{post.category}</Text>
+      <View style={styles.postHeader}>
+        <View style={styles.authorInfo}>
+          <Text style={styles.authorName}>{getDisplayNickname(post.author_nickname)}</Text>
+          <Text style={styles.postTime}>
+            {new Date(post.created_at).toLocaleDateString('ko-KR')}
+          </Text>
         </View>
-        <Text style={styles.authorText}>{post.author_nickname}</Text>
       </View>
-      <Text style={styles.searchResultTitle}>{post.title}</Text>
-      <View style={styles.searchResultFooter}>
-        <Text style={styles.searchResultDate}>
-          {new Date(post.created_at).toLocaleDateString('ko-KR')}
-        </Text>
-        <View style={styles.searchResultStats}>
+      
+      <Text style={styles.postTitle} numberOfLines={2}>
+        {post.title}
+      </Text>
+      
+      <View style={styles.postFooter}>
+        <View style={styles.postStats}>
           <View style={styles.statItem}>
-            <Ionicons name="eye" size={12} color="#999999" />
-            <Text style={styles.statText}> {post.view_count}</Text>
+            <Ionicons name="eye-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{post.view_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="heart" size={12} color="#999999" />
-            <Text style={styles.statText}> {post.heart_count}</Text>
+            <Ionicons name="chatbubble-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{post.comment_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="chatbubble" size={12} color="#999999" />
-            <Text style={styles.statText}> {post.comment_count}</Text>
+            <Ionicons name="heart-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{post.heart_count}</Text>
           </View>
         </View>
       </View>
@@ -188,6 +192,8 @@ export default function SearchScreen() {
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>검색하기</Text>
+        <View style={styles.placeholderButton} />
       </View>
 
       {/* 검색 입력 필드 */}
@@ -274,16 +280,28 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f8f9fa',
   },
   header: {
     backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
   },
   backButton: {
-    alignSelf: 'flex-start',
+    padding: 8,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#212529',
+  },
+  placeholderButton: {
+    width: 40,
   },
   searchContainer: {
     backgroundColor: '#ffffff',
@@ -319,7 +337,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   recentSection: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingTop: 20,
     paddingBottom: 16,
@@ -364,7 +382,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f8f9fa',
   },
   loadingContainer: {
     flex: 1,
@@ -375,7 +393,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666666',
+    color: '#6c757d',
   },
   searchResults: {
     padding: 16,
@@ -394,65 +412,66 @@ const styles = StyleSheet.create({
   },
   noResultsText: {
     fontSize: 16,
-    color: '#666666',
+    color: '#6c757d',
     textAlign: 'center',
   },
   searchResultCard: {
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-  searchResultHeader: {
+  postHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  categoryBadge: {
-    backgroundColor: '#000000',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  authorInfo: {
+    flex: 1,
   },
-  categoryText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  authorText: {
+  authorName: {
     fontSize: 14,
-    color: '#666666',
     fontWeight: '500',
+    color: '#495057',
   },
-  searchResultTitle: {
+  postTime: {
+    fontSize: 12,
+    color: '#6c757d',
+    marginTop: 2,
+  },
+  postTitle: {
     fontSize: 16,
-    color: '#333333',
-    fontWeight: '500',
-    lineHeight: 22,
+    fontWeight: '600',
+    color: '#212529',
     marginBottom: 8,
+    lineHeight: 22,
   },
-  searchResultFooter: {
+  postFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  searchResultDate: {
-    fontSize: 12,
-    color: '#999999',
-  },
-  searchResultStats: {
+  postStats: {
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'center',
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 16,
   },
   statText: {
     fontSize: 12,
-    color: '#999999',
+    color: '#6c757d',
+    marginLeft: 4,
   },
 }); 

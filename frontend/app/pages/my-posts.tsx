@@ -13,6 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import { postService, PostListResponse } from '../services/postService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 import { Ionicons } from '@expo/vector-icons';
 
 export default function MyPostsScreen() {
@@ -36,9 +37,10 @@ export default function MyPostsScreen() {
 
       // 내가 작성한 게시글 가져오기
       const myPosts = await postService.getMyPosts();
-      setPosts(myPosts);
+      setPosts(myPosts || []);
     } catch (error) {
       console.error('내 게시글 가져오기 실패:', error);
+      setPosts([]); // 오류 시 빈 배열로 설정
       Alert.alert('오류', '내 게시글을 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
@@ -74,12 +76,10 @@ export default function MyPostsScreen() {
       activeOpacity={0.7}
     >
       <View style={styles.postHeader}>
-        <View style={styles.categoryContainer}>
-          <View style={styles.categoryBadge}>
-            <Text style={styles.categoryText}>{item.category}</Text>
-          </View>
+        <View style={styles.authorInfo}>
+          <Text style={styles.authorName}>{getDisplayNickname(item.author_nickname)}</Text>
+          <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
         </View>
-        <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
       </View>
       
       <Text style={styles.postTitle} numberOfLines={2}>
@@ -89,15 +89,15 @@ export default function MyPostsScreen() {
       <View style={styles.postFooter}>
         <View style={styles.postStats}>
           <View style={styles.statItem}>
-            <Ionicons name="eye-outline" size={16} color="#000000" />
+            <Ionicons name="eye-outline" size={16} color="#6c757d" />
             <Text style={styles.statText}>{item.view_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="chatbubble-outline" size={16} color="#000000" />
+            <Ionicons name="chatbubble-outline" size={16} color="#6c757d" />
             <Text style={styles.statText}>{item.comment_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="heart-outline" size={16} color="#000000" />
+            <Ionicons name="heart-outline" size={16} color="#6c757d" />
             <Text style={styles.statText}>{item.heart_count}</Text>
           </View>
         </View>
@@ -107,7 +107,7 @@ export default function MyPostsScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <View style={[styles.container, styles.centerContent, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
         <ActivityIndicator size="large" color="#000000" />
         <Text style={styles.loadingText}>내 게시글을 불러오는 중...</Text>
       </View>
@@ -115,7 +115,7 @@ export default function MyPostsScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -139,7 +139,7 @@ export default function MyPostsScreen() {
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="document-text-outline" size={64} color="#000000" />
+            <Ionicons name="document-text-outline" size={64} color="#adb5bd" />
             <Text style={styles.emptyTitle}>작성한 게시글이 없습니다</Text>
             <Text style={styles.emptySubtitle}>첫 번째 게시글을 작성해보세요!</Text>
           </View>
@@ -162,19 +162,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+    position: 'relative',
   },
   backButton: {
     padding: 8,
-    marginRight: 12,
+    position: 'absolute',
+    left: 8,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000000',
+    color: '#212529',
   },
   postList: {
     flex: 1,
@@ -202,30 +205,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  categoryContainer: {
+  authorInfo: {
     flex: 1,
   },
-  categoryBadge: {
-    backgroundColor: '#000000',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-  },
-  categoryText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
+  authorName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#495057',
   },
   postTime: {
     fontSize: 12,
     color: '#6c757d',
+    marginTop: 2,
   },
   postTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#212529',
-    marginBottom: 12,
+    marginBottom: 8,
     lineHeight: 22,
   },
   postFooter: {
@@ -257,7 +254,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
-    paddingVertical: 60,
   },
   emptyTitle: {
     fontSize: 18,

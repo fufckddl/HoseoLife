@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'https://camsaw.kro.kr';
+const API_BASE_URL = 'https://hoseolife.kro.kr';
 
 export interface ContactData {
   id: number;

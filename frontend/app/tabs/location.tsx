@@ -1,18 +1,20 @@
 import * as React from 'react';
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, SafeAreaView, Alert, Image } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, Linking, TouchableOpacity } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE, Region, Circle, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { postService, PostListResponse } from '../services/postService';
 import { clusterMarkers, PostMarker, Cluster } from '../utils/clustering';
+import { getDisplayNickname } from '../utils/userUtils';
 import { CustomMarker, ClusterMarker } from '../components/CustomMarker';
 import { PostListModal } from '../components/PostListModal';
-import { getCurrentKoreaTime, formatKoreaTime, getTodaySixAM, debugTimeInfo, getCurrentKoreaTimeString } from '../utils/dateUtils';
+import { getCurrentKoreaTime, formatKoreaTime, getTodaySixAM, debugTimeInfo } from '../utils/dateUtils';
 import { TopBar } from '../components/layout/TopBar';
 import { BottomBar } from '../components/layout/BottomBar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { buildingService, Building } from '../services/buildingService';
 
 type LocationCoords = {
   latitude: number;
@@ -21,284 +23,313 @@ type LocationCoords = {
 
 export default function LocationScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  // 위치 상태
   const [location, setLocation] = useState<LocationCoords | null>(null);
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null); // meters(±)
   const [loading, setLoading] = useState(true);
-  const [posts, setPosts] = useState<PostListResponse[]>([]);
-  const [clusteredMarkers, setClusteredMarkers] = useState<{
-    clusters: Cluster[];
-    individualMarkers: PostMarker[];
-  }>({ clusters: [], individualMarkers: [] });
+
+  // 지도 상태
   const [region, setRegion] = useState<Region>({
-    latitude: 36.7789, // 호서대학교 천안캠퍼스 근처 기본값
+    latitude: 36.7789,
     longitude: 127.2835,
     latitudeDelta: 0.005,
     longitudeDelta: 0.005,
   });
-  
-  // 모달 상태
+
+  // 게시글/클러스터
+  const [posts, setPosts] = useState<PostListResponse[]>([]);
+  const [clusteredMarkers, setClusteredMarkers] = useState<{ clusters: Cluster[]; individualMarkers: PostMarker[] }>({
+    clusters: [],
+    individualMarkers: [],
+  });
+
+  // 건물 데이터
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
+
+  // 모달
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
-  const insets = useSafeAreaInsets();
 
-  // 위치 권한 요청 및 현재 위치 가져오기
+  // 위치 구독 핸들러
+  const watchSubRef = useRef<Location.LocationSubscription | null>(null);
+  const mapRef = useRef<MapView | null>(null);
+
+  // ------------------------
+  // 유틸: 하버사인 거리(m)
+  // ------------------------
+  const haversine = (a: LocationCoords, b: LocationCoords) => {
+    const R = 6371000; // m
+    const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
+    const dLon = ((b.longitude - a.longitude) * Math.PI) / 180;
+    const lat1 = (a.latitude * Math.PI) / 180;
+    const lat2 = (b.latitude * Math.PI) / 180;
+    const sinDlat = Math.sin(dLat / 2);
+    const sinDlon = Math.sin(dLon / 2);
+    const h = sinDlat * sinDlat + Math.cos(lat1) * Math.cos(lat2) * sinDlon * sinDlon;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+
+  // ------------------------
+  // 권한 및 초기 위치 + 연속 추적 설정
+  // ------------------------
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        
-        // 위치 권한 확인
-        let { status } = await Location.getForegroundPermissionsAsync();
-        
-        // 권한이 없으면 요청
-        if (status !== 'granted') {
-          console.log('위치 권한 요청 중...');
-          const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
-          
-          if (newStatus !== 'granted') {
-            Alert.alert(
-              '위치 권한 필요',
-              '주변 게시글을 확인하기 위해 위치 권한이 필요합니다. 앱을 다시 시작하여 위치 권한을 허용해주세요.',
-              [{ text: '확인', style: 'default' }]
-            );
-            setLoading(false);
-            return;
-          }
+
+        // 1) 서비스 활성화 확인
+        const isLocationEnabled = await Location.hasServicesEnabledAsync();
+        if (!isLocationEnabled) {
+          Alert.alert(
+            '위치 서비스 비활성화',
+            '정확한 위치를 위해 기기 위치 서비스를 활성화하세요.',
+            [
+              { text: '설정 열기', onPress: () => Linking.openSettings() },
+              { text: '닫기', style: 'cancel' },
+            ]
+          );
+          setLoading(false);
+          return;
         }
 
-        console.log('위치 권한 승인됨, 현재 위치 가져오는 중...');
-        
-        // 빠른 위치 가져오기 (낮은 정확도로 먼저 시도)
-        const currentLocation = await getCurrentLocationFast();
-        
-        if (currentLocation) {
-          // 현재 위치로 지도 중심 설정
-          const newRegion = {
-            latitude: currentLocation.latitude,
-            longitude: currentLocation.longitude,
-            latitudeDelta: 0.005,
-            longitudeDelta: 0.005,
-          };
-          setRegion(newRegion);
-          console.log('현재 위치로 지도 설정 완료:', newRegion);
-          
-          // 백그라운드에서 더 정확한 위치 업데이트
-          updateLocationInBackground();
-        } else {
-          console.log('위치 정보를 가져올 수 없어 기본 위치 사용');
+        // 2) 포그라운드 권한
+        let { status, canAskAgain } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          if (canAskAgain) {
+            const req = await Location.requestForegroundPermissionsAsync();
+            status = req.status;
+          }
         }
-        
+        if (status !== 'granted') {
+          Alert.alert(
+            '권한 필요',
+            '주변 게시글을 보여주려면 위치 권한이 필요합니다. 설정에서 허용해주세요.',
+            [{ text: '설정 열기', onPress: () => Linking.openSettings() }]
+          );
+          setLoading(false);
+          return;
+        }
+
+        // 3) 초기 빠른 고정
+        const fast = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        }).catch(() => null);
+
+        if (fast) {
+          const { latitude, longitude, accuracy } = fast.coords;
+          const pos = { latitude, longitude };
+          setLocation(pos);
+          setLocationAccuracy(accuracy ?? null);
+          const initialRegion = {
+            latitude,
+            longitude,
+            ...accuracyToDelta(accuracy ?? 50),
+          };
+          setRegion(initialRegion);
+        }
+
+        // 4) 최정밀 단발 업데이트 시도
+        const preciseOnce = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.BestForNavigation,
+        }).catch(() => null);
+
+        if (preciseOnce) {
+          const { latitude, longitude, accuracy } = preciseOnce.coords;
+          const pos = { latitude, longitude };
+          setLocation(pos);
+          setLocationAccuracy(accuracy ?? null);
+          const preciseRegion = {
+            latitude,
+            longitude,
+            ...accuracyToDelta(accuracy ?? 30),
+          };
+          setRegion(preciseRegion);
+          mapRef.current?.animateCamera({ center: pos, zoom: deltaToZoom(preciseRegion.latitudeDelta) }, { duration: 600 });
+        }
+
+        // 5) 고정밀 연속 추적 시작
+        if (watchSubRef.current) {
+          watchSubRef.current.remove();
+          watchSubRef.current = null;
+        }
+        watchSubRef.current = await Location.watchPositionAsync(
+          {
+            // 실사용 정확도 핵심
+            accuracy: Location.Accuracy.Balanced,  // BestForNavigation에서 Balanced로 변경
+            timeInterval: 10000,    // 10초마다 (2초 → 10초)
+            distanceInterval: 15,   // 15m 이동 시 (3m → 15m)
+            mayShowUserSettingsDialog: true,
+          },
+          (loc) => {
+            const { latitude, longitude, accuracy } = loc.coords;
+            const next = { latitude, longitude };
+            setLocation(next);
+            setLocationAccuracy(accuracy ?? null);
+
+            // 의미 있는 이동일 때만 지도 갱신 (거리 임계값도 늘림)
+            if (!region || !location || haversine(location, next) >= 20) {
+              const nextRegion = {
+                latitude,
+                longitude,
+                ...accuracyToDelta(accuracy ?? 30),
+              };
+              setRegion(nextRegion);
+              mapRef.current?.animateCamera({ center: next }, { duration: 350 });
+            }
+          }
+        );
+
         setLoading(false);
-      } catch (error) {
-        console.error('위치 권한 요청 실패:', error);
-        Alert.alert('오류', '위치 정보를 가져오는데 실패했습니다.');
+      } catch (e: any) {
+        console.error('위치 초기화 실패:', e?.message ?? e);
+        Alert.alert('오류', '위치 서비스를 시작하는 데 실패했습니다.');
         setLoading(false);
       }
     })();
+
+    // 언마운트 시 구독 해제
+    return () => {
+      if (watchSubRef.current) {
+        watchSubRef.current.remove();
+        watchSubRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 초기 게시글 데이터 가져오기
+  // 게시글 및 건물 초기 로드
   useEffect(() => {
     fetchPosts();
+    fetchBuildings();
   }, []);
 
-  // 화면이 포커스될 때마다 게시글 목록 새로고침
+  // 포커스시 새로고침
   useFocusEffect(
     React.useCallback(() => {
-      console.log('=== Location 화면 포커스됨, 게시글 목록 새로고침 ===');
-      
-      // 약간의 지연을 두어 post-detail에서의 변경사항이 서버에 반영될 시간을 줌
-      setTimeout(() => {
-        console.log('Location 화면 포커스 후 지연 완료, 게시글 목록 새로고침 시작');
-        fetchPosts();
-      }, 300);
+      setTimeout(() => fetchPosts(), 300);
     }, [])
   );
 
-  // 게시글 데이터를 마커 형태로 변환하고 클러스터링
+  // 게시글 → 마커 → 클러스터
   useEffect(() => {
-    console.log(`오늘 06:00 이후 게시글: ${posts.length}개`);
-    console.log('현재 한국 시간:', formatKoreaTime(getCurrentKoreaTime()));
-    
     if (posts.length > 0) {
       const postMarkers: PostMarker[] = posts
-        .filter(post => post.building_latitude && post.building_longitude)
-        .map(post => ({
+        .filter((post) => post.building_latitude && post.building_longitude)
+        .map((post) => ({
           id: post.id,
           latitude: parseFloat(post.building_latitude!),
           longitude: parseFloat(post.building_longitude!),
           title: post.title,
           category: post.category,
           building_name: post.building_name,
-          author_nickname: post.author_nickname,
+          author_nickname: getDisplayNickname(post.author_nickname),
           created_at: post.created_at,
           view_count: post.view_count,
           heart_count: post.heart_count,
           comment_count: post.comment_count,
         }));
 
-      console.log('필터링된 마커 데이터:', postMarkers.length, '개');
-      console.log('마커 좌표 예시:', postMarkers.slice(0, 3));
-
       const clustered = clusterMarkers(postMarkers, 15, 50);
-      console.log('클러스터링 결과:', {
-        clusters: clustered.clusters.length,
-        individualMarkers: clustered.individualMarkers.length
-      });
       setClusteredMarkers(clustered);
     } else {
-      // 게시글이 없으면 마커 초기화
       setClusteredMarkers({ clusters: [], individualMarkers: [] });
     }
   }, [posts]);
 
   const fetchPosts = async () => {
     try {
-      console.log('게시글 목록 갱신 시작...');
-      
-      // 디버그 정보 출력
       debugTimeInfo();
-      
-      // 오늘 06:00 이후 날짜를 ISO 문자열로 변환
       const todaySixAM = getTodaySixAM();
-      const afterDate = todaySixAM.toISOString();
-      
-      console.log('API 호출 날짜 파라미터:', afterDate);
-      
-      const postsData = await postService.getPosts(0, 100, undefined, undefined, undefined, undefined, false); // 날짜 필터링 제거하여 모든 게시글 가져오기 (공지/뉴스 제외)
-      console.log('새로 가져온 게시글 수:', postsData.length);
+      const _afterDate = todaySixAM.toISOString(); // 현재는 전체 로드
+
+      const postsData = await postService.getPosts(0, 100, undefined, undefined, undefined, undefined, false);
       setPosts(postsData);
     } catch (error) {
       console.error('게시글 가져오기 실패:', error);
-      // 오류 발생 시 빈 배열로 설정하여 앱이 계속 동작하도록 함
       setPosts([]);
     }
   };
 
-  const handlePostPress = (post: PostMarker) => {
-    console.log('=== handlePostPress 호출됨 ===');
-    console.log('게시글 클릭됨:', post.id, post.title);
-    console.log('router 객체:', router);
-    console.log('이동할 경로:', `/pages/post-detail?id=${post.id}`);
-    
+  const fetchBuildings = async () => {
     try {
-      // 게시글 상세 페이지로 이동
+      console.log('🏢 건물 데이터 가져오는 중...');
+      const buildingsData = await buildingService.getAllBuildings();
+      setBuildings(buildingsData);
+      console.log(`✅ ${buildingsData.length}개 건물 데이터 로드 완료`);
+    } catch (error) {
+      console.error('건물 데이터 가져오기 실패:', error);
+      setBuildings([]);
+    }
+  };
+
+  // 마커/클러스터 이벤트
+  const handlePostPress = (post: PostMarker) => {
+    try {
       router.push(`/pages/post-detail?id=${post.id}`);
-      console.log('router.push 호출 완료');
     } catch (error) {
       console.error('router.push 오류:', error);
     }
   };
-
   const handleMarkerPress = (post: PostMarker) => {
-    // 마커 클릭 시 모달로 표시
-    setSelectedCluster({
-      latitude: post.latitude,
-      longitude: post.longitude,
-      posts: [post],
-      count: 1
-    });
+    setSelectedCluster({ latitude: post.latitude, longitude: post.longitude, posts: [post], count: 1 });
     setModalVisible(true);
   };
-
   const handleClusterPress = (cluster: Cluster) => {
-    console.log('클러스터 클릭됨:', cluster.posts.length, '개 게시글');
     setSelectedCluster(cluster);
     setModalVisible(true);
   };
-
   const handleModalClose = () => {
     setModalVisible(false);
     setSelectedCluster(null);
   };
+  const handleRegionChange = (newRegion: Region) => setRegion(newRegion);
 
-  const handleRegionChange = (newRegion: any) => {
-    setRegion(newRegion);
+  // 건물 경계선 토글
+  const toggleBuildingOutlines = () => {
+    setShowBuildingOutlines(!showBuildingOutlines);
   };
 
-  // 빠른 위치 가져오기 (낮은 정확도로 먼저 시도)
-  const getCurrentLocationFast = async (): Promise<LocationCoords | null> => {
-    try {
-      console.log('빠른 위치 가져오는 중...');
-      
-      // 낮은 정확도로 빠르게 위치 정보 가져오기
-      let location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Low,
-      });
-      
-      const { latitude, longitude } = location.coords;
-      const locationCoords = { latitude, longitude };
-      
-      console.log('빠른 위치 획득:', locationCoords);
-      setLocation(locationCoords);
-      return locationCoords;
-    } catch (error) {
-      console.error('빠른 위치 정보 가져오기 실패:', error);
-      return null;
-    }
+  // 캠퍼스 이동 함수들
+  const moveToCheonanCampus = () => {
+    const cheonanRegion = {
+      latitude: 36.827828,
+      longitude: 127.183290,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    };
+    setRegion(cheonanRegion);
+    mapRef.current?.animateCamera({ center: { latitude: 36.827828, longitude: 127.183290 } }, { duration: 1000 });
   };
 
-  // 정확한 위치 가져오기 (기존 함수)
-  const getCurrentLocation = async (): Promise<LocationCoords | null> => {
-    try {
-      console.log('정확한 위치 가져오는 중...');
-      
-      // 고정밀도로 위치 정보 가져오기
-      let location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.BestForNavigation,
-      });
-      
-      const { latitude, longitude } = location.coords;
-      const locationCoords = { latitude, longitude };
-      
-      console.log('정확한 위치 획득:', locationCoords);
-      setLocation(locationCoords);
-      return locationCoords;
-    } catch (error) {
-      console.error('정확한 위치 정보를 가져오는데 실패했습니다:', error);
-      
-      // 실패 시 더 낮은 정확도로 재시도
-      try {
-        console.log('중간 정확도로 위치 재시도 중...');
-        let location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        
-        const { latitude, longitude } = location.coords;
-        const locationCoords = { latitude, longitude };
-        
-        console.log('중간 정확도로 위치 획득:', locationCoords);
-        setLocation(locationCoords);
-        return locationCoords;
-      } catch (retryError) {
-        console.error('위치 정보 재시도 실패:', retryError);
-        return null;
-      }
-    }
+  const moveToAsanCampus = () => {
+    const asanRegion = {
+      latitude: 36.736628,
+      longitude: 127.075351,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    };
+    setRegion(asanRegion);
+    mapRef.current?.animateCamera({ center: { latitude: 36.736628, longitude: 127.075351 } }, { duration: 1000 });
   };
 
-  // 백그라운드에서 정확한 위치 업데이트
-  const updateLocationInBackground = async () => {
-    setTimeout(async () => {
-      try {
-        console.log('백그라운드에서 정확한 위치 업데이트 중...');
-        const accurateLocation = await getCurrentLocation();
-        
-        if (accurateLocation) {
-          // 지도 영역을 부드럽게 업데이트
-          const newRegion = {
-            latitude: accurateLocation.latitude,
-            longitude: accurateLocation.longitude,
-            latitudeDelta: 0.005,
-            longitudeDelta: 0.005,
-          };
-          setRegion(newRegion);
-          console.log('정확한 위치로 지도 업데이트 완료:', newRegion);
-        }
-      } catch (error) {
-        console.error('백그라운드 위치 업데이트 실패:', error);
-      }
-    }, 2000); // 2초 후에 정확한 위치 업데이트
-  };
+  // 정확도 → 지도 델타(줌) 변환
+  function accuracyToDelta(acc: number) {
+    // acc 10m → delta ~0.0015, acc 100m → delta ~0.01 근사
+    const clamped = Math.min(Math.max(acc, 5), 200);
+    const delta = (clamped / 1000) * 0.15 + 0.0012; // 경험적 스케일
+    return { latitudeDelta: delta, longitudeDelta: delta };
+    // 필요시 지역마다 종횡비 보정 가능
+  }
+
+  // 델타 → 대략적 줌(안드로이드 카메라 애니메이션용)
+  function deltaToZoom(delta: number) {
+    // 대략식: zoom ≈ log2(360 / delta)
+    const z = Math.log2(360 / delta);
+    return Math.min(Math.max(z, 3), 20);
+  }
 
   if (loading) {
     return (
@@ -310,73 +341,155 @@ export default function LocationScreen() {
 
   return (
     <View style={styles.container}>
-      {/* 상단 바 */}
-      <TopBar 
-        title="위치"
-        rightIcon="notifications"
-        onRightIconPress={() => router.push('/pages/notifications')}
-      />
+      <TopBar title="위치" showLogo={false} />
 
-      {/* Google Maps */}
+      {/* 위치 정확도 표시 */}
+      {location && (
+        <View style={styles.locationStatus}>
+          <View style={styles.locationIndicator}>
+            <Ionicons
+              name="location"
+              size={16}
+              color={locationAccuracy && locationAccuracy <= 50 ? '#4CAF50' : '#FF9800'}
+            />
+            <Text style={styles.locationStatusText}>
+              {locationAccuracy ? `위치 정확도: ±${locationAccuracy.toFixed(0)}m` : '위치 확인됨'}
+            </Text>
+          </View>
+          
+          {/* 건물 경계선 토글 버튼 */}
+          <TouchableOpacity 
+            style={styles.buildingToggleButton}
+            onPress={toggleBuildingOutlines}
+          >
+            <Ionicons 
+              name={showBuildingOutlines ? "eye" : "eye-off"} 
+              size={20} 
+              color={showBuildingOutlines ? "#4CAF50" : "#666"} 
+            />
+            <Text style={[
+              styles.buildingToggleText,
+              { color: showBuildingOutlines ? "#4CAF50" : "#666" }
+            ]}>
+              {showBuildingOutlines ? "건물 경계선 숨기기" : "건물 경계선 보기"}
+            </Text>
+          </TouchableOpacity>
+
+          {/* 캠퍼스 이동 버튼들 */}
+          <View style={styles.campusButtonsContainer}>
+            <TouchableOpacity 
+              style={styles.campusButton}
+              onPress={moveToCheonanCampus}
+            >
+              <Ionicons name="school" size={16} color="#2196F3" />
+              <Text style={styles.campusButtonText}>천안캠퍼스</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.campusButton}
+              onPress={moveToAsanCampus}
+            >
+              <Ionicons name="school" size={16} color="#FF9800" />
+              <Text style={styles.campusButtonText}>아산캠퍼스</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* 지도 */}
       <MapView
+        ref={mapRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
         region={region}
         onRegionChangeComplete={handleRegionChange}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
+        showsUserLocation
+        showsMyLocationButton
         mapType="standard"
         initialRegion={region}
       >
-        {/* 개별 게시글 마커들 */}
-        {clusteredMarkers.individualMarkers.length > 0 && (
-          <>
-            {console.log('개별 마커 렌더링:', clusteredMarkers.individualMarkers.length, '개')}
-            {clusteredMarkers.individualMarkers.map((post) => (
-              <Marker
-                key={`post-${post.id}`}
-                coordinate={{
-                  latitude: post.latitude,
-                  longitude: post.longitude,
-                }}
-                title={post.title}
-                description={post.building_name}
-                onPress={() => handleMarkerPress(post)}
-              >
-                <CustomMarker post={post} onPress={handleMarkerPress} />
-              </Marker>
-            ))}
-          </>
+        {/* 정확도 원 표시 */}
+        {location && locationAccuracy && locationAccuracy > 0 && (
+          <Circle
+            center={location}
+            radius={locationAccuracy}
+            strokeWidth={1}
+            strokeColor="rgba(33, 150, 243, 0.5)"
+            fillColor="rgba(33, 150, 243, 0.15)"
+            zIndex={1}
+          />
         )}
 
-        {/* 클러스터 마커들 */}
-        {clusteredMarkers.clusters.length > 0 && (
-          <>
-            {console.log('클러스터 마커 렌더링:', clusteredMarkers.clusters.length, '개')}
-            {clusteredMarkers.clusters.map((cluster, index) => (
-              <Marker
-                key={`cluster-${index}`}
-                coordinate={{
-                  latitude: cluster.latitude,
-                  longitude: cluster.longitude,
-                }}
-                onPress={() => handleClusterPress(cluster)}
-              >
-                <ClusterMarker cluster={cluster} onPress={handleClusterPress} />
-              </Marker>
-            ))}
-          </>
-        )}
+        {/* 건물 경계선 표시 */}
+        {showBuildingOutlines && buildings.map((building) => {
+          if (building.building_type === 'polygon' && building.coordinates.length > 0) {
+            // 폴리곤 건물: 좌표들을 선으로 연결하고 첫 번째 점으로 닫기
+            const coordinates = [...building.coordinates, building.coordinates[0]];
+            return (
+              <Polyline
+                key={`building-outline-${building.id}`}
+                coordinates={coordinates}
+                strokeColor="#FF6B6B"
+                strokeWidth={2}
+                lineDashPattern={[5, 5]}
+                zIndex={2}
+              />
+            );
+          } else if (building.building_type === 'rectangle' && building.coordinates.length >= 4) {
+            // 사각형 건물: 4개 점으로 사각형 그리기 (시계방향 순서)
+            const [topLeft, topRight, bottomRight, bottomLeft] = building.coordinates;
+            const rectangleCoords = [
+              topLeft,    // 북서쪽
+              topRight,   // 북동쪽
+              bottomRight, // 남동쪽
+              bottomLeft,  // 남서쪽
+              topLeft,    // 닫기
+            ];
+            return (
+              <Polyline
+                key={`building-outline-${building.id}`}
+                coordinates={rectangleCoords}
+                strokeColor="#4ECDC4"
+                strokeWidth={2}
+                lineDashPattern={[5, 5]}
+                zIndex={2}
+              />
+            );
+          }
+          return null;
+        })}
+
+        {/* 개별 마커 */}
+        {clusteredMarkers.individualMarkers.map((post) => (
+          <Marker
+            key={`post-${post.id}`}
+            coordinate={{ latitude: post.latitude, longitude: post.longitude }}
+            title={post.title}
+            description={post.building_name}
+            onPress={() => handleMarkerPress(post)}
+          >
+            <CustomMarker post={post} onPress={handleMarkerPress} />
+          </Marker>
+        ))}
+
+        {/* 클러스터 */}
+        {clusteredMarkers.clusters.map((cluster, index) => (
+          <Marker
+            key={`cluster-${index}`}
+            coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
+            onPress={() => handleClusterPress(cluster)}
+          >
+            <ClusterMarker cluster={cluster} onPress={handleClusterPress} />
+          </Marker>
+        ))}
       </MapView>
-      
-      {/* 하단 바 */}
-      <BottomBar 
-        activeTab="location" 
-        showFloatingButton={true}
+
+      <BottomBar
+        activeTab="location"
+        showFloatingButton
         onFloatingButtonPress={() => router.push('/pages/create-post')}
       />
 
-      {/* 게시글 목록 모달 */}
       <PostListModal
         visible={modalVisible}
         posts={selectedCluster?.posts || []}
@@ -391,8 +504,61 @@ export default function LocationScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ffffff' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  map: { 
-    flex: 1,
-    borderRadius: 20,
+  locationStatus: {
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
+  locationIndicator: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  locationStatusText: { marginLeft: 6, fontSize: 12, color: '#666', fontWeight: '500' },
+  buildingToggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  buildingToggleText: {
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  campusButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 8,
+    gap: 12,
+  },
+  campusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  campusButtonText: {
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+  },
+  map: { flex: 1, borderRadius: 20 },
 });

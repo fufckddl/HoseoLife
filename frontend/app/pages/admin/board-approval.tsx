@@ -35,7 +35,7 @@ export default function BoardApprovalScreen() {
         return;
       }
 
-      const response = await fetch('https://camsaw.kro.kr/admin/board-requests', {
+      const response = await fetch('https://hoseolife.kro.kr/admin/board-requests', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -64,7 +64,7 @@ export default function BoardApprovalScreen() {
         return;
       }
 
-      const response = await fetch(`https://camsaw.kro.kr/admin/board-requests/${boardId}/approve`, {
+      const response = await fetch(`https://hoseolife.kro.kr/admin/board-requests/${boardId}/approve`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -100,7 +100,7 @@ export default function BoardApprovalScreen() {
                 return;
               }
 
-              const response = await fetch(`https://camsaw.kro.kr/admin/board-requests/${boardId}/reject`, {
+              const response = await fetch(`https://hoseolife.kro.kr/admin/board-requests/${boardId}/reject`, {
                 method: 'POST',
                 headers: {
                   'Authorization': `Bearer ${token}`,

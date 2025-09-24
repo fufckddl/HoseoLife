@@ -13,11 +13,14 @@ if not SQL_ECHO:
     logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
     logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
 
-#데이터베이스 연결 정보 (UTF-8 인코딩 설정)
-DATABASE_URL = "mysql+pymysql://camsaw:camsaw123@your-server-ip:3306/camsaw_db?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+# 데이터베이스 연결 정보 (UTF-8 인코딩 설정)
+DATABASE_URL = "mysql+pymysql://your-db-user:your-db-password@your-db-host:3306/your-db-name?charset=utf8mb4&collation=utf8mb4_unicode_ci"
 
 # 데이터베이스 생성용 URL (데이터베이스명 제외)
-CREATE_DB_URL = "mysql+pymysql://camsaw:camsaw123@your-server-ip:3306?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+CREATE_DB_URL = "mysql+pymysql://your-db-user:your-db-password@your-db-host:3306?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+
+# 비밀번호 상수 정의 (URL 인코딩된 값)
+DB_PASSWORD = "your-database-password"
 
 #데이터베이스 연결 (UTF-8 인코딩 설정)
 engine = create_engine(
@@ -43,10 +46,10 @@ def create_database_if_not_exists():
         
         # MySQL에 직접 연결하여 데이터베이스 생성
         connection = pymysql.connect(
-            host='your-server-ip',
+            host='your-server-host',
             port=3306,
             user='camsaw',
-            password='camsaw123',
+            password=DB_PASSWORD,  # 상수 사용
             charset='utf8mb4'
         )
         
@@ -67,6 +70,17 @@ def create_database_if_not_exists():
     except Exception as e:
         print(f"데이터베이스 생성 중 오류: {e}")
         print(f"오류 타입: {type(e)}")
+        
+        # 구체적인 오류 메시지 출력
+        if "Access denied" in str(e):
+            print("🔐 접근 권한 오류: 사용자명 또는 비밀번호를 확인하세요.")
+            print("💡 해결 방법:")
+            print("   1. MySQL에서 camsaw 사용자 권한 확인")
+            print("   2. 비밀번호 재설정")
+            print("   3. 원격 접근 권한 부여")
+        elif "Can't connect" in str(e):
+            print("🌐 연결 오류: MySQL 서버가 실행 중인지 확인하세요.")
+        
         # 오류가 발생해도 계속 진행 (데이터베이스가 이미 존재할 수 있음)
         print("데이터베이스 생성 오류를 무시하고 계속 진행합니다.")
 

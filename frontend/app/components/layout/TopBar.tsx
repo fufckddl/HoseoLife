@@ -9,6 +9,7 @@ interface TopBarProps {
   showBackButton?: boolean;
   showRefreshButton?: boolean;
   showSearchButton?: boolean;
+  showLogo?: boolean; // 🆕 로고 표시 여부
   onBackPress?: () => void;
   onRefreshPress?: () => void;
   onSearchPress?: () => void;
@@ -21,6 +22,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   showBackButton = false,
   showRefreshButton = false,
   showSearchButton = false,
+  showLogo = true, // 🆕 기본값은 true (기존 동작 유지)
   onBackPress,
   onRefreshPress,
   onSearchPress,
@@ -59,14 +61,14 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <View style={[styles.topBar, { paddingTop: insets.top + 15 }]}>
+    <View style={[styles.topBar, { paddingTop: insets.top + 6 }]}>
       {/* 왼쪽: 뒤로가기 버튼 또는 로고 */}
       <View style={styles.leftContainer}>
         {showBackButton ? (
           <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
             <Ionicons name="arrow-back" size={24} color="#000000" />
           </TouchableOpacity>
-        ) : (
+        ) : showLogo ? (
           <View style={styles.logoContainer}>
             <Image 
               source={require('../../../assets/images/hoseolife_logo.png')} 
@@ -74,29 +76,31 @@ export const TopBar: React.FC<TopBarProps> = ({
               resizeMode="contain"
             />
           </View>
+        ) : (
+          <View style={styles.emptyContainer} />
         )}
       </View>
 
-      {/* 가운데: 타이틀 */}
+      {/* 가운데: 타이틀 - flex로 중앙 정렬 */}
       <View style={styles.titleContainer}>
-        {title && <Text style={styles.titleText}>{title}</Text>}
+        {title && <Text style={styles.titleText} numberOfLines={1} ellipsizeMode="tail">{title}</Text>}
       </View>
 
       {/* 오른쪽: 버튼들 */}
       <View style={styles.rightContainer}>
         <View style={styles.rightButtonsContainer}>
           {showSearchButton && (
-            <TouchableOpacity style={styles.searchButton} onPress={handleSearchPress}>
+            <TouchableOpacity style={styles.iconButton} onPress={handleSearchPress}>
               <Ionicons name="search" size={24} color="#000000" />
             </TouchableOpacity>
           )}
           {showRefreshButton && (
-            <TouchableOpacity style={styles.refreshButton} onPress={handleRefreshPress}>
+            <TouchableOpacity style={styles.iconButton} onPress={handleRefreshPress}>
               <Ionicons name="refresh" size={24} color="#000000" />
             </TouchableOpacity>
           )}
           {rightIcon && (
-            <TouchableOpacity style={styles.rightIconButton} onPress={handleRightIconPress}>
+            <TouchableOpacity style={styles.iconButton} onPress={handleRightIconPress}>
               <Ionicons name={rightIcon as any} size={24} color="#000000" />
             </TouchableOpacity>
           )}
@@ -111,65 +115,68 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    minHeight: 44, // 최소 높이 보장
   },
   leftContainer: {
-    width: 60,
-    height: 50,
+    width: 44,
+    height: 44,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    flexShrink: 0, // 축소 방지
   },
   backButton: {
-    padding: 5,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   logoContainer: {
-    width: 60,
-    height: 50,
+    width: 44,
+    height: 44,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   logoImage: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
+  },
+  emptyContainer: {
+    width: 44,
+    height: 44,
   },
   titleContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    height: 50,
-    marginLeft: 20,
+    paddingHorizontal: 8, // 좌우 여백 추가
   },
   titleText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000000',
     fontFamily: 'GmarketSans',
+    textAlign: 'center',
+    maxWidth: '100%', // 최대 너비 제한
   },
   rightContainer: {
-    height: 50,
     justifyContent: 'center',
-    alignItems: 'flex-end',
+    alignItems: 'center',
+    flexShrink: 0, // 축소 방지
+    minWidth: 44, // 최소 너비 보장
   },
   rightButtonsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  refreshButton: {
-    padding: 5,
-    marginLeft: 8,
-  },
-  searchButton: {
-    padding: 5,
-    marginLeft: 8,
-  },
-  rightIconButton: {
-    padding: 5,
-    marginLeft: 8,
-  },
-  placeholder: {
-    width: 34,
+  iconButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

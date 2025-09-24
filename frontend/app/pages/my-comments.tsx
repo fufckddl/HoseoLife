@@ -89,32 +89,33 @@ export default function MyCommentsScreen() {
       activeOpacity={0.7}
     >
       <View style={styles.commentHeader}>
-        <View style={styles.categoryContainer}>
-          <View style={styles.categoryBadge}>
-            <Text style={styles.categoryText}>{item.post_category}</Text>
-          </View>
+        <View style={styles.authorInfo}>
+          <Text style={styles.authorName}>내 댓글</Text>
+          <Text style={styles.commentTime}>{formatTimeAgo(item.created_at)}</Text>
         </View>
-        <Text style={styles.commentTime}>{formatTimeAgo(item.created_at)}</Text>
       </View>
       
-      <Text style={styles.postTitle} numberOfLines={1}>
+      <Text style={styles.postTitle} numberOfLines={2}>
         {item.post_title}
       </Text>
       
-      <Text style={styles.commentContent} numberOfLines={3}>
-        {item.content}
-      </Text>
-      
       <View style={styles.commentFooter}>
-        <Ionicons name="chatbubble-outline" size={16} color="#000000" />
-        <Text style={styles.commentLabel}>내 댓글</Text>
+        <View style={styles.postStats}>
+          <View style={styles.statItem}>
+            <Ionicons name="chatbubble-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>댓글</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.categoryText}>{item.post_category}</Text>
+          </View>
+        </View>
       </View>
     </TouchableOpacity>
   );
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <View style={[styles.container, styles.centerContent, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
         <ActivityIndicator size="large" color="#000000" />
         <Text style={styles.loadingText}>내 댓글을 불러오는 중...</Text>
       </View>
@@ -122,7 +123,7 @@ export default function MyCommentsScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -146,7 +147,7 @@ export default function MyCommentsScreen() {
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubble-outline" size={64} color="#000000" />
+            <Ionicons name="chatbubble-outline" size={64} color="#adb5bd" />
             <Text style={styles.emptyTitle}>작성한 댓글이 없습니다</Text>
             <Text style={styles.emptySubtitle}>첫 번째 댓글을 작성해보세요!</Text>
           </View>
@@ -169,19 +170,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+    position: 'relative',
   },
   backButton: {
     padding: 8,
-    marginRight: 12,
+    position: 'absolute',
+    left: 8,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000000',
+    color: '#212529',
   },
   commentList: {
     flex: 1,
@@ -209,46 +213,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  categoryContainer: {
+  authorInfo: {
     flex: 1,
   },
-  categoryBadge: {
-    backgroundColor: '#000000',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-  },
-  categoryText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
+  authorName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#495057',
   },
   commentTime: {
     fontSize: 12,
     color: '#6c757d',
+    marginTop: 2,
   },
   postTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#495057',
-    marginBottom: 8,
-    lineHeight: 18,
-  },
-  commentContent: {
-    fontSize: 14,
     color: '#212529',
-    lineHeight: 20,
-    marginBottom: 12,
+    marginBottom: 8,
+    lineHeight: 22,
   },
   commentFooter: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  commentLabel: {
+  postStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  statText: {
     fontSize: 12,
-    color: '#000000',
+    color: '#6c757d',
     marginLeft: 4,
+  },
+  categoryText: {
+    fontSize: 12,
+    color: '#6c757d',
     fontWeight: '500',
   },
   loadingText: {
@@ -261,7 +267,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
-    paddingVertical: 60,
   },
   emptyTitle: {
     fontSize: 18,
@@ -276,3 +281,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+

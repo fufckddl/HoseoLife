@@ -7,6 +7,7 @@ from datetime import datetime
 class GroupRequestCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=40)
     description: Optional[str] = Field(None, max_length=200)
+    image_url: Optional[str] = Field(None, max_length=500)  # 🆕 그룹 대표 이미지 URL
     
     class Config:
         extra = "ignore"
@@ -15,6 +16,7 @@ class GroupRequestOut(BaseModel):
     id: int
     name: str
     description: Optional[str]
+    image_url: Optional[str] = Field(None, alias="imageUrl")  # 🆕 그룹 대표 이미지 URL
     requester_id: int = Field(alias="requesterId")
     status: str
     created_at: datetime = Field(alias="createdAt")
@@ -43,11 +45,14 @@ class RoomSummary(BaseModel):
     room_id: int = Field(alias="roomId")
     name: str
     type: str
+    image_url: Optional[str] = Field(None, alias="imageUrl")  # 🆕 채팅방 이미지 URL 추가
     last_message: Optional[str] = Field(None, alias="lastMessage")
+    last_message_sender: Optional[str] = Field(None, alias="lastMessageSender")  # 🆕 발신자 정보 추가
     unread: int = 0
     
     class Config:
-        validate_by_name = True
+        from_attributes = True
+        populate_by_name = True
 
 class MyRoomsOut(BaseModel):
     dms: List[RoomSummary]

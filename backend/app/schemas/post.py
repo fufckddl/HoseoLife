@@ -47,7 +47,10 @@ class PostResponse(PostBase):
 class PostListResponse(BaseModel):
     id: int
     title: str
+    content: str  # 게시글 내용 (미리보기용)
+    author_id: int  # 작성자 ID
     category: str
+    board_name: Optional[str] = None  # 게시판 이름
     building_name: Optional[str] = None
     building_latitude: Optional[str] = None
     building_longitude: Optional[str] = None
@@ -55,8 +58,23 @@ class PostListResponse(BaseModel):
     author_profile_image_url: Optional[str] = None  # 작성자 프로필 이미지 URL
     view_count: int
     heart_count: int
+    scrap_count: int  # 스크랩 수
     comment_count: int
     created_at: datetime
+    updated_at: Optional[datetime] = None
+    image_urls: Optional[List[str]] = None  # 이미지 URL 목록
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+# 페이지네이션 응답용
+class PaginatedPostListResponse(BaseModel):
+    items: List[PostListResponse]
+    total: int
+    skip: int
+    limit: int
+    has_more: bool
+    total_pages: int
+
+    class Config:
+        from_attributes = True

@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.routers import user, email_verification, post, contact, report, alarm, board_request, chat, group_chat
+from app.routers import user, email_verification, post, contact, report, alarm, board_request, chat, group_chat, building, upload, shuttle_bus, schedule, notification
 import json
 
 from app.db.database import Base, engine, create_database_if_not_exists
@@ -22,6 +22,18 @@ from app.models.alarm import Alarm
 from app.models.board_request import BoardRequest
 # Board 모델 import 추가
 from app.models.board import Board
+# BoardNotice 모델 import 추가 🆕
+from app.models.board_notice import BoardNotice
+# Building 모델 import 추가
+from app.models.building import Building
+# ShuttleBus 모델 import 추가
+from app.models.shuttle_bus import ShuttleBus
+# Course 모델 import 추가
+from app.models.schedule import Course
+# UserSchedule 모델 import 추가
+from app.models.user_schedule import UserSchedule
+# 🆕 Notification 모델 import 추가
+from app.models.notification import Notification
 
 from dotenv import load_dotenv
 import os
@@ -50,6 +62,14 @@ try:
     print("알람 스케줄러 시작 완료")
 except Exception as e:
     print(f"알람 스케줄러 시작 실패: {e}")
+
+# Redis 서비스 import 및 초기화
+try:
+    from app.services.redis_service import redis_service
+    from app.websocket_manager import manager
+    print("Redis 서비스 및 WebSocket Manager 로드 완료")
+except Exception as e:
+    print(f"Redis 서비스 로드 실패: {e}")
 
 # 환경 변수 로드
 load_dotenv()
@@ -115,6 +135,11 @@ app.include_router(chat.router)
 app.include_router(group_chat.router)
 app.include_router(alarm.router)
 app.include_router(board_request.router)
+app.include_router(building.router)
+app.include_router(upload.router)
+app.include_router(shuttle_bus.router)
+app.include_router(schedule.router)
+app.include_router(notification.router)  # 🆕 알림 라우터 추가
 
 
 
@@ -194,3 +219,33 @@ def test_group_chat_notification():
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+@app.on_event("startup")
+async def startup_event():
+    """서버 시작 시 실행되는 이벤트"""
+    try:
+        # Redis 초기화
+        await redis_service.initialize()
+        print("✅ Redis 서비스 초기화 완료")
+        
+        # WebSocket Manager Redis 초기화
+        await manager.initialize_redis()
+        print("✅ WebSocket Manager Redis 초기화 완료")
+        
+    except Exception as e:
+        print(f"❌ 서버 시작 이벤트 실패: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """서버 종료 시 실행되는 이벤트"""
+    try:
+        # WebSocket Manager 정리
+        await manager.close()
+        print("✅ WebSocket Manager 종료 완료")
+        
+        # Redis 연결 종료
+        await redis_service.close()
+        print("✅ Redis 서비스 종료 완료")
+        
+    except Exception as e:
+        print(f"❌ 서버 종료 이벤트 실패: {e}")

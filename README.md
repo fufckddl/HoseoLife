@@ -53,7 +53,7 @@ cp .env.example .env
 python -m alembic upgrade head
 
 # 서버 실행
-uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload --limit-request-line 0 --limit-request-field_size 0 --limit-request-fields 0
 ```
 
 ### 2. 프론트엔드 설정

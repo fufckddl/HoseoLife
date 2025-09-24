@@ -14,7 +14,9 @@ from app.models.post import Post
 from app.models.comment import Comment
 from app.models.report import Report, UserPenalty
 from app.models.contact import Contact
-from sqlalchemy import or_
+from app.models.board import Board
+from app.models.board_request import BoardRequest
+from sqlalchemy import or_, text
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "secret")
 ALGORITHM = "HS256"
@@ -66,6 +68,95 @@ def create_access_token(data: dict, expires_delta: Union[timedelta, None] = None
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+# 🆕 닉네임 중복 체크 API
+@router.get("/check-nickname/{nickname}")
+def check_nickname_availability(
+    nickname: str,
+    db: Session = Depends(get_db)
+):
+    """닉네임 사용 가능 여부를 확인합니다."""
+    print(f"=== 닉네임 중복 체크 ===")
+    print(f"확인할 닉네임: {nickname}")
+    
+    # 닉네임 길이 체크 (2-20자)
+    if len(nickname) < 2 or len(nickname) > 20:
+        return {
+            "available": False,
+            "message": "닉네임은 2-20자 사이여야 합니다."
+        }
+    
+    # 특수문자 체크 (한글, 영문, 숫자만 허용)
+    import re
+    if not re.match(r'^[가-힣a-zA-Z0-9]+$', nickname):
+        return {
+            "available": False,
+            "message": "닉네임은 한글, 영문, 숫자만 사용 가능합니다."
+        }
+    
+    # 데이터베이스에서 중복 체크
+    existing_user = db.query(User).filter(User.nickname == nickname).first()
+    
+    if existing_user:
+        print(f"❌ 이미 사용 중인 닉네임: {nickname}")
+        return {
+            "available": False,
+            "message": "이미 사용 중인 닉네임입니다."
+        }
+    else:
+        print(f"✅ 사용 가능한 닉네임: {nickname}")
+        return {
+            "available": True,
+            "message": "사용 가능한 닉네임입니다."
+        }
+
+@router.post("/check-board-name")
+def check_board_name_availability(
+    request_data: dict,
+    db: Session = Depends(get_db)
+):
+    """게시판 이름 중복 검증"""
+    try:
+        board_name = request_data.get("name", "").strip()
+        print(f"🔍 게시판 이름 검증 요청: '{board_name}'")
+        
+        if not board_name:
+            return {
+                "available": False,
+                "message": "게시판 이름을 입력해주세요."
+            }
+        
+        # 기존 게시판에서 동일한 이름 확인
+        existing_board = db.execute(text("""
+            SELECT id FROM boards WHERE name = :board_name AND is_active = TRUE
+        """), {'board_name': board_name}).fetchone()
+        
+        # 대기 중인 게시판 요청에서 동일한 이름 확인
+        pending_request = db.execute(text("""
+            SELECT id FROM board_requests WHERE name = :board_name AND status = 'pending'
+        """), {'board_name': board_name}).fetchone()
+        
+        is_available = not existing_board and not pending_request
+        
+        result = {
+            "available": is_available,
+            "message": "사용 가능한 게시판 이름입니다." if is_available else "이미 사용 중이거나 대기 중인 게시판 이름입니다."
+        }
+        
+        if existing_board:
+            result["reason"] = "existing_board"
+        elif pending_request:
+            result["reason"] = "pending_request"
+        
+        print(f"✅ 게시판 이름 검증 결과: '{board_name}' -> {result}")
+        return result
+        
+    except Exception as e:
+        print(f"❌ 게시판 이름 검증 실패: {e}")
+        return {
+            "available": False,
+            "message": "이름 확인 중 오류가 발생했습니다."
+        }
 
 @router.post("/register", response_model=UserResponse)
 def register(user: UserCreate, db: Session = Depends(get_db)):
@@ -144,6 +235,22 @@ def update_fcm_token(
     print(f"✅ FCM 토큰 업데이트 완료")
     return {"message": "FCM 토큰이 저장되었습니다."}
 
+@router.post("/clear-fcm-token")
+def clear_fcm_token(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """FCM 토큰 제거 (로그아웃 시 호출)"""
+    print(f"=== FCM 토큰 제거 요청 ===")
+    print(f"사용자: {current_user.nickname} (ID: {current_user.id})")
+    print(f"기존 FCM 토큰: {current_user.fcm_token[:20] if current_user.fcm_token else 'None'}...")
+    
+    current_user.fcm_token = None
+    db.commit()
+    
+    print(f"✅ FCM 토큰 제거 완료")
+    return {"message": "FCM 토큰이 제거되었습니다."}
+
 @router.post("/test-notification")
 def test_notification(
     current_user: User = Depends(get_current_user),
@@ -190,6 +297,99 @@ def test_notification_all(
     
     print(f"전체 테스트 알림 전송 결과: {result}")
     return {"message": "모든 사용자에게 테스트 알림이 전송되었습니다.", "result": result}
+
+# 🆕 회원탈퇴 API (데이터 익명화 방식)
+@router.delete("/deactivate")
+def deactivate_user_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """회원탈퇴 처리 (데이터 익명화, 게시글/댓글 유지)"""
+    print(f"=== 회원탈퇴 요청 ===")
+    print(f"사용자: {current_user.nickname} (ID: {current_user.id})")
+    print(f"이메일: {current_user.email}")
+    
+    try:
+        from app.utils.date_utils import get_current_korea_time
+        from sqlalchemy import text
+        
+        deactivation_time = get_current_korea_time()
+        
+        # 🔧 사용자 정보 익명화 (데이터는 유지)
+        original_nickname = current_user.nickname
+        original_email = current_user.email
+        
+        # 사용자 계정 비활성화 및 정보 익명화
+        current_user.is_active = False
+        current_user.nickname = f"(알수없음){current_user.id}"  # 🔧 고유한 익명 닉네임 (ID 포함)
+        current_user.email = f"deactivated_{current_user.id}_{int(deactivation_time.timestamp())}@deleted.local"  # 🔧 이메일 익명화
+        current_user.hashed_password = "DEACTIVATED"  # 🔧 비밀번호 무효화
+        current_user.fcm_token = None  # FCM 토큰 제거
+        current_user.profile_image_url = None  # 프로필 이미지 제거
+        current_user.notifications_enabled = False  # 알림 비활성화
+        
+        # 🔧 채팅방 멤버십 비활성화 (채팅방에서 제외)
+        db.execute(text("""
+            UPDATE memberships 
+            SET is_active = FALSE 
+            WHERE user_id = :user_id
+        """), {'user_id': current_user.id})
+        
+        # 🔧 개인 데이터 안전 삭제 (테이블 존재 여부 확인)
+        personal_data_tables = [
+            ('user_schedules', '사용자 시간표'),
+            ('alarms', '알람'),
+            ('scraps', '스크랩'),
+            ('view_logs', '조회 기록'),
+            ('contacts', '문의'),
+            ('notifications', '알림 기록')
+        ]
+        
+        for table_name, description in personal_data_tables:
+            try:
+                result = db.execute(text(f"""
+                    DELETE FROM {table_name} 
+                    WHERE user_id = :user_id
+                """), {'user_id': current_user.id})
+                deleted_count = result.rowcount
+                print(f"✅ {description} 삭제 완료: {deleted_count}개")
+            except Exception as e:
+                if "doesn't exist" in str(e):
+                    print(f"⚠️ {table_name} 테이블이 없음 (무시)")
+                else:
+                    print(f"❌ {description} 삭제 실패: {e}")
+        
+        # 🔧 채팅방 나간 시간 기록 삭제 (개인 데이터) - 테이블 존재 시에만
+        try:
+            db.execute(text("""
+                DELETE FROM user_room_leave_times 
+                WHERE user_id = :user_id
+            """), {'user_id': current_user.id})
+            print("✅ 채팅방 나간 시간 기록 삭제 완료")
+        except Exception as e:
+            if "doesn't exist" in str(e):
+                print("⚠️ user_room_leave_times 테이블이 없음 (무시)")
+            else:
+                print(f"❌ 채팅방 나간 시간 기록 삭제 실패: {e}")
+        
+        db.commit()
+        
+        print(f"✅ 회원탈퇴 완료")
+        print(f"  - 원래 닉네임: {original_nickname} → (알수없음)")
+        print(f"  - 원래 이메일: {original_email} → 익명화됨")
+        print(f"  - 게시글/댓글: 유지됨 (작성자만 익명화)")
+        print(f"  - 개인 데이터: 삭제됨 (시간표, 알람, 스크랩 등)")
+        print(f"  - 채팅방 멤버십: 비활성화됨")
+        
+        return {
+            "message": "회원탈퇴가 완료되었습니다. 게시글과 댓글은 익명으로 유지됩니다.",
+            "deactivated_at": deactivation_time.isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ 회원탈퇴 처리 실패: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="회원탈퇴 처리 중 오류가 발생했습니다.")
 
 @router.post("/change-password")
 def change_password(

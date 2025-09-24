@@ -2,54 +2,23 @@
   "expo": {
     "name": "HoseoLife",
     "slug": "hoseolife",
-    "extra": {
-      "eas": {
-        "projectId": "b046f9bf-ef7a-4bd4-a9d0-74602416e381"
-      }
-    },
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/hoseolife_applogo.png",
     "scheme": "hoseolife",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ],
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "HoseoLife가 위치 정보를 사용하여 주변 게시글을 표시합니다."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/notification-icon.png",
-          "color": "#ffffff"
-        }
-      ]
-    ],
     "ios": {
       "supportsTablet": true,
       "buildNumber": "14",
+      "displayName": "HoseoLife",
       "config": {
         "googleMapsApiKey": "your-google-maps-api-key"
       },
       "bundleIdentifier": "com.dlckdfuf.camsaw",
-      "googleServicesFile": "./ios/CamSaw/GoogleService-Info.plist",
-        "associatedDomains": [
-    "applinks:hoseolife.kro.kr/chat/rooms/share",
-    "applinks:hoseolife.kro.kr/posts/share"
-  ],
+      "associatedDomains": [
+        "applinks:hoseolife.kro.kr"
+      ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "HoseoLife는 게시글에 사진을 업로드하기 위해 사진 라이브러리에 접근합니다.",
@@ -64,15 +33,13 @@
               "NSExceptionAllowsInsecureHTTPLoads": true,
               "NSExceptionMinimumTLSVersion": "1.0",
               "NSExceptionRequiresForwardSecrecy": false,
-              "NSIncludesSubdomains": true,
-              "NSExceptionAllowsInsecureHTTPLoads": true
+              "NSIncludesSubdomains": true
             },
             "hoseolife.kro.kr": {
               "NSExceptionAllowsInsecureHTTPLoads": true,
               "NSExceptionMinimumTLSVersion": "1.0",
               "NSExceptionRequiresForwardSecrecy": false,
-              "NSIncludesSubdomains": true,
-              "NSExceptionAllowsInsecureHTTPLoads": true
+              "NSIncludesSubdomains": true
             },
             "your-server-ip": {
               "NSExceptionAllowsInsecureHTTPLoads": true,
@@ -86,33 +53,30 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/hoseolife_applogo.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.dlckdfuf.camsaw",
-      "googleServicesFile": "./google-services.json",
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
-                        "data": [
-                {
-                  "scheme": "https",
-                  "host": "hoseolife.kro.kr",
-                  "pathPrefix": "/chat/rooms/share"
-                },
-                {
-                  "scheme": "https",
-                  "host": "hoseolife.kro.kr",
-                  "pathPrefix": "/posts/share"
-                },
-                {
-                  "scheme": "hoseolife",
-                  "host": "post"
-                }
-              ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "https",
+              "host": "hoseolife.kro.kr",
+              "pathPrefix": "/posts/"
+            },
+            {
+              "scheme": "hoseolife",
+              "host": "post"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "config": {
@@ -128,15 +92,15 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/hoseolife_applogo.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/hoseolife_applogo.png",
+          "imageWidth": 250,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
@@ -150,15 +114,20 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/notification-icon.png",
+          "icon": "./assets/images/hoseolife_applogo.png",
           "color": "#ffffff"
         }
       ]
     ],
-
     "experiments": {
       "typedRoutes": true
     },
-    "owner": "leechangryeol"
+    "owner": "leechangryeol",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1ff6f25e-6fe9-4be1-8ebb-1d6de29ad69e"
+      }
+    }
   }
 }

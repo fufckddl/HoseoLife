@@ -17,9 +17,21 @@ class Comment(Base):
     post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     post = relationship("Post", back_populates="comments")
     
+    # 대댓글 기능
+    parent_id = Column(Integer, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True)  # 부모 댓글 ID
+    depth = Column(Integer, default=0)  # 댓글 깊이 (0: 일반댓글, 1: 대댓글, 2: 대대댓글...)
+    
     # 댓글 상태
     is_active = Column(Boolean, default=True)  # 활성/비활성 상태
     
     # 시간 정보
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now()) 
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # 관계 설정 - 대댓글 기능 (자기참조)
+    # replies: 이 댓글에 달린 대댓글들
+    replies = relationship(
+        "Comment",
+        backref="parent",
+        remote_side=[id]
+    ) 

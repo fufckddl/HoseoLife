@@ -20,6 +20,52 @@ from app.models.chat import UserRoomLeaveTime
 
 router = APIRouter(prefix="/chat", tags=["group_chat"])
 
+# 🆕 그룹 이미지를 임시에서 최종 경로로 이동하는 함수
+async def move_group_image_to_final_path(old_image_url: str, room_id: int, s3_service) -> str:
+    """
+    S3에서 그룹 이미지를 임시 경로에서 최종 경로로 이동
+    group/temp_xxx/logo.png -> group/{room_id}/logo.png
+    """
+    try:
+        # URL에서 키 추출: https://bucket.s3.region.amazonaws.com/group/temp_xxx/logo.png
+        if '/group/' not in old_image_url:
+            return old_image_url
+        
+        # 기존 키 추출
+        old_key = old_image_url.split('.amazonaws.com/')[-1]  # group/temp_xxx/logo.png
+        
+        # 파일 확장자 추출 (기본값: png)
+        file_extension = old_key.split('.')[-1] if '.' in old_key else 'png'
+        
+        # 새로운 키 생성: group/{room_id}/logo.png
+        new_key = f"group/{room_id}/logo.{file_extension}"
+        
+        # S3에서 파일 복사
+        s3_service._initialize()
+        
+        # 기존 파일을 새 위치로 복사
+        s3_service.s3_client.copy_object(
+            Bucket=s3_service.bucket_name,
+            CopySource={'Bucket': s3_service.bucket_name, 'Key': old_key},
+            Key=new_key
+        )
+        
+        # 기존 파일 삭제
+        s3_service.s3_client.delete_object(
+            Bucket=s3_service.bucket_name,
+            Key=old_key
+        )
+        
+        # 새 URL 생성
+        new_url = f"https://{s3_service.bucket_name}.s3.ap-northeast-2.amazonaws.com/{new_key}"
+        print(f"✅ S3 그룹 이미지 이동 완료: {old_key} -> {new_key}")
+        
+        return new_url
+        
+    except Exception as e:
+        print(f"❌ S3 그룹 이미지 이동 실패: {e}")
+        return old_image_url  # 실패 시 기존 URL 반환
+
 # 그룹 생성 요청
 @router.post("/groups/requests", response_model=GroupRequestOut)
 def create_group_request(
@@ -28,10 +74,13 @@ def create_group_request(
     db: Session = Depends(get_db)
 ):
     """그룹 생성 요청을 생성합니다."""
+    print(f"🔍 그룹 생성 요청 - 사용자: {current_user.nickname}, 그룹명: {request.name}, 이미지: {getattr(request, 'image_url', None)}")
+    
     group_request = GroupCreationRequest(
         requester_id=current_user.id,
         name=request.name,
         description=request.description,
+        image_url=getattr(request, 'image_url', None),  # 🆕 안전하게 image_url 접근
         status=GroupStatus.PENDING
     )
     
@@ -43,6 +92,7 @@ def create_group_request(
         id=group_request.id,
         name=group_request.name,
         description=group_request.description,
+        imageUrl=group_request.image_url,  # 🆕 이미지 URL 추가
         requesterId=group_request.requester_id,
         status=group_request.status.value,
         createdAt=group_request.created_at
@@ -79,7 +129,7 @@ def get_pending_group_requests(
 
 # 관리자: 그룹 요청 승인
 @router.post("/admin/groups/{request_id}/approve", response_model=GroupApproveOut)
-def approve_group_request(
+async def approve_group_request(
     request_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -111,10 +161,27 @@ def approve_group_request(
         type="group",
         name=group_request.name,
         description=group_request.description,
+        image_url=group_request.image_url,  # 🆕 그룹 대표 이미지 URL 추가
         status=RoomStatus.ACTIVE
     )
     db.add(new_room)
     db.flush()  # ID 생성을 위해 flush
+    
+    # 🆕 S3 이미지 경로를 최종 경로로 업데이트
+    if group_request.image_url:
+        try:
+            from app.services.s3_service import s3_service
+            updated_image_url = await move_group_image_to_final_path(
+                group_request.image_url, 
+                new_room.id,
+                s3_service
+            )
+            if updated_image_url:
+                new_room.image_url = updated_image_url
+                print(f"✅ 그룹 이미지 경로 업데이트: {group_request.image_url} -> {updated_image_url}")
+        except Exception as e:
+            print(f"⚠️ 그룹 이미지 경로 업데이트 실패: {e}")
+            # 실패해도 그룹 생성은 계속 진행
     
     # 요청자에게 관리자 권한 부여
     membership = Membership(
@@ -139,7 +206,7 @@ def approve_group_request(
         }
         send_fcm_to_user(db, group_request.requester_id, notification_data["title"], notification_data["body"], notification_data["data"])
     
-    return GroupApproveOut(room_id=new_room.id, status="approved")
+    return GroupApproveOut(roomId=new_room.id, status="approved")  # 🔧 alias 필드명 사용
 
 # 관리자: 그룹 요청 거절
 @router.post("/admin/groups/{request_id}/reject")
@@ -182,45 +249,61 @@ def get_available_groups(
     """참여 가능한 그룹 목록을 조회합니다."""
     print(f"🔍 참여 가능한 그룹 조회 - 사용자 ID: {current_user.id}")
     
-    # 사용자가 이미 참여 중인 그룹 ID 목록
-    my_memberships = db.query(Membership.room_id).filter(
-        Membership.user_id == current_user.id
-    ).all()
-    my_group_ids = [m.room_id for m in my_memberships]
-    print(f"📊 사용자가 참여 중인 그룹 ID: {my_group_ids}")
-    
-    # 참여 가능한 그룹 조회
-    available_rooms = db.query(Room).filter(
-        Room.type == type,
-        Room.status == RoomStatus.ACTIVE
-    ).all()
-    
-    print(f"🏠 전체 활성 그룹 수: {len(available_rooms)}")
-    
-    result = []
-    for room in available_rooms:
-        # 이미 참여 중인지 확인
-        if room.id in my_group_ids:
-            print(f"⏭️ 그룹 {room.id} ({room.name}) - 이미 참여 중")
-            continue
-            
-        # 멤버 수 계산
-        member_count = db.query(Membership).filter(
-            Membership.room_id == room.id,
-            Membership.is_active == True
-        ).count()
+    try:
+        from sqlalchemy import text
         
-        group_info = AvailableGroupOut(
-            room_id=room.id,
-            name=room.name,
-            description=room.description,
-            member_count=member_count
-        )
-        result.append(group_info)
-        print(f"✅ 그룹 {room.id} ({room.name}) - 멤버 {member_count}명")
-    
-    print(f"🎯 반환할 그룹 수: {len(result)}")
-    return result
+        # 🔧 직접 SQL 사용하여 순환 참조 문제 회피
+        # 사용자가 이미 참여 중인 그룹 ID 목록
+        my_memberships = db.execute(text("""
+            SELECT room_id FROM memberships 
+            WHERE user_id = :user_id
+        """), {'user_id': current_user.id}).fetchall()
+        
+        my_group_ids = [m[0] for m in my_memberships]
+        print(f"📊 사용자가 참여 중인 그룹 ID: {my_group_ids}")
+        
+        # 참여 가능한 그룹 조회 (직접 SQL)
+        available_rooms_sql = """
+            SELECT r.id, r.name, r.description, r.status,
+                   (SELECT COUNT(*) FROM memberships WHERE room_id = r.id AND is_active = TRUE) as member_count
+            FROM rooms r
+            WHERE r.type = :room_type AND r.status = 'ACTIVE'
+        """
+        
+        if my_group_ids:
+            # 이미 참여 중인 그룹 제외
+            placeholders = ','.join([':group_id_' + str(i) for i in range(len(my_group_ids))])
+            available_rooms_sql += f" AND r.id NOT IN ({placeholders})"
+            
+            params = {'room_type': type}
+            for i, group_id in enumerate(my_group_ids):
+                params[f'group_id_{i}'] = group_id
+        else:
+            params = {'room_type': type}
+        
+        available_rooms = db.execute(text(available_rooms_sql), params).fetchall()
+        
+        print(f"🏠 참여 가능한 그룹 수: {len(available_rooms)}")
+        
+        result = []
+        for room in available_rooms:
+            group_info = {
+                "roomId": room[0],  # 🔧 alias 필드명 사용
+                "name": room[1],
+                "description": room[2],
+                "memberCount": room[4]
+            }
+            result.append(group_info)
+            print(f"✅ 그룹 {room[0]} ({room[1]}) - 멤버 {room[4]}명")
+        
+        print(f"🎯 반환할 그룹 수: {len(result)}")
+        return result
+        
+    except Exception as e:
+        print(f"❌ 참여 가능한 그룹 조회 실패: {e}")
+        import traceback
+        print(f"오류 상세: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="참여 가능한 그룹 조회에 실패했습니다")
 
 # 1:1 채팅방 찾기 또는 생성 (새로운 Room 모델)
 @router.get("/rooms/dm/new")
@@ -306,35 +389,59 @@ def join_group(
     db: Session = Depends(get_db)
 ):
     """그룹에 참여합니다."""
-    # 그룹 존재 확인
-    room = db.query(Room).filter(
-        Room.id == room_id,
-        Room.type == "group",
-        Room.status == RoomStatus.ACTIVE
-    ).first()
+    print(f"🎯 그룹 참여 요청 - 사용자 {current_user.id}, 그룹 {room_id}")
     
-    if not room:
-        raise HTTPException(status_code=404, detail="그룹을 찾을 수 없습니다")
-    
-    # 이미 참여 중인지 확인
-    existing_membership = db.query(Membership).filter(
-        Membership.room_id == room_id,
-        Membership.user_id == current_user.id
-    ).first()
-    
-    if existing_membership:
-        return JoinResponse(joined=True)  # idempotent 처리
-    
-    # 새 멤버십 생성
-    membership = Membership(
-        room_id=room_id,
-        user_id=current_user.id,
-        role=UserRole.MEMBER
-    )
-    db.add(membership)
-    db.commit()
-    
-    return JoinResponse(joined=True)
+    try:
+        from sqlalchemy import text
+        
+        # 🔧 직접 SQL로 그룹 존재 확인
+        room = db.execute(text("""
+            SELECT id, name, type, status 
+            FROM rooms 
+            WHERE id = :room_id AND type = 'group' AND status = 'ACTIVE'
+        """), {'room_id': room_id}).fetchone()
+        
+        if not room:
+            raise HTTPException(status_code=404, detail="그룹을 찾을 수 없습니다")
+        
+        print(f"✅ 그룹 확인: {room[1]} (ID: {room[0]})")
+        
+        # 이미 참여 중인지 확인
+        existing_membership = db.execute(text("""
+            SELECT id, is_active FROM memberships 
+            WHERE room_id = :room_id AND user_id = :user_id
+        """), {'room_id': room_id, 'user_id': current_user.id}).fetchone()
+        
+        if existing_membership:
+            if existing_membership[1]:  # is_active가 True인 경우
+                print(f"⚠️ 이미 참여 중인 그룹")
+                return {"joined": True}  # 🔧 dict 형태로 반환
+            else:
+                # 비활성화된 멤버십을 다시 활성화
+                db.execute(text("""
+                    UPDATE memberships 
+                    SET is_active = TRUE 
+                    WHERE id = :membership_id
+                """), {'membership_id': existing_membership[0]})
+                db.commit()
+                print(f"✅ 멤버십 재활성화 완료")
+                return {"joined": True}
+        
+        # 새 멤버십 생성
+        db.execute(text("""
+            INSERT INTO memberships (room_id, user_id, role, is_active, notifications_enabled)
+            VALUES (:room_id, :user_id, 'MEMBER', TRUE, TRUE)
+        """), {'room_id': room_id, 'user_id': current_user.id})
+        
+        db.commit()
+        
+        print(f"✅ 그룹 참여 완료")
+        return {"joined": True}
+        
+    except Exception as e:
+        print(f"❌ 그룹 참여 실패: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="그룹 참여에 실패했습니다")
 
 # 방별 알림 설정 토글
 @router.post("/rooms/{room_id}/notifications/toggle")
@@ -471,11 +578,33 @@ def get_my_rooms(
                     display_name = other_user.nickname
                     print(f"👤 1:1 채팅방 상대방: {other_user.nickname}")
         
+        # 🔧 마지막 메시지 처리 개선 (이미지 메시지 포함)
+        last_message_text = None
+        last_message_sender_name = None
+        
+        if last_message:
+            # 발신자 정보 조회
+            sender = db.query(User).filter(User.id == last_message.sender_id).first()
+            last_message_sender_name = sender.nickname if sender else "알 수 없음"
+            
+            # 이미지 메시지인지 확인
+            if last_message.image_urls:
+                # 이미지 메시지인 경우
+                if last_message.sender_id == current_user.id:
+                    last_message_text = "내가 사진을 보냈습니다."
+                else:
+                    last_message_text = f"{last_message_sender_name}님이 사진을 보냈습니다."
+            else:
+                # 일반 텍스트 메시지인 경우
+                last_message_text = last_message.content
+        
         room_summary = RoomSummary(
             roomId=room.id,  # alias 사용
             name=display_name,
             type=room.type,
-            lastMessage=last_message.content if last_message else None,  # alias 사용
+            imageUrl=getattr(room, 'image_url', None),  # 🆕 안전하게 image_url 접근
+            lastMessage=last_message_text,  # 🔧 개선된 메시지 텍스트 사용
+            lastMessageSender=last_message_sender_name,  # 🆕 발신자 정보 추가
             unread=0  # TODO: 읽지 않은 메시지 수 계산
         )
         
@@ -527,37 +656,91 @@ def get_room_messages(
     if not membership:
         raise HTTPException(status_code=403, detail="채팅방에 접근할 권한이 없습니다")
     
-    # 메시지 조회
-    messages = db.query(ChatMessage).filter(
-        ChatMessage.room_id == room_id,
-        ChatMessage.is_deleted == False
-    ).order_by(ChatMessage.id.desc()).limit(limit).all()
-    
-    # 메시지 순서를 시간순으로 정렬 (최신 메시지가 마지막)
-    messages = list(reversed(messages))
-    
-    print(f"📊 Room {room_id} 메시지 수: {len(messages)}")
-    
-    return {
-        "messages": [
-            {
-                "id": msg.id,
-                "content": msg.content,
-                "image_urls": json.loads(msg.image_urls) if msg.image_urls else None,
-                "sender_id": msg.sender_id,
-                "room_id": msg.room_id,
-                "created_at": msg.sent_at.isoformat() if msg.sent_at else None,
-                "is_deleted": msg.is_deleted
+    # 🔧 메시지 조회 (발신자 정보 포함)
+    try:
+        from sqlalchemy import text
+        
+        # 직접 SQL 사용하여 발신자 정보와 함께 조회
+        sql = """
+            SELECT 
+                m.id, m.room_id, m.content, m.client_msg_id, m.sender_id, m.sent_at, m.is_deleted, m.image_urls,
+                u.nickname as sender_nickname, u.profile_image_url as sender_profile_image_url
+            FROM chat_messages m
+            LEFT JOIN users u ON m.sender_id = u.id
+            WHERE m.room_id = :room_id AND m.is_deleted = FALSE
+            ORDER BY m.id DESC 
+            LIMIT :limit
+        """
+        
+        result = db.execute(text(sql), {'room_id': room_id, 'limit': limit})
+        messages_data = result.fetchall()
+        
+        # 메시지 순서를 시간순으로 정렬 (최신 메시지가 마지막)
+        messages_data = list(reversed(messages_data))
+        
+        print(f"📊 Room {room_id} 메시지 수: {len(messages_data)}")
+        
+        # 응답 형식으로 변환
+        message_list = []
+        for msg in messages_data:
+            message_dict = {
+                "id": msg[0],
+                "content": msg[2],
+                "image_urls": json.loads(msg[7]) if msg[7] else None,
+                "sender_id": msg[4],
+                "sender_nickname": msg[8],  # 🆕 발신자 닉네임
+                "sender_profile_image_url": msg[9],  # 🆕 발신자 프로필 이미지
+                "room_id": msg[1],
+                "client_msg_id": msg[3],
+                "sent_at": msg[5].isoformat() if msg[5] else None,
+                "is_deleted": bool(msg[6])
             }
-            for msg in messages
-        ],
-        "room_info": {
-            "id": room.id,
-            "name": room.name,
-            "type": room.type,
-            "description": room.description
+            message_list.append(message_dict)
+        
+        return {
+            "messages": message_list,
+            "room_info": {
+                "id": room.id,
+                "name": room.name,
+                "type": room.type,
+                "description": room.description
+            }
         }
-    }
+        
+    except Exception as e:
+        print(f"❌ 메시지 조회 실패: {e}")
+        import traceback
+        print(f"오류 상세: {traceback.format_exc()}")
+        
+        # 실패 시 기존 방식으로 fallback
+        messages = db.query(ChatMessage).filter(
+            ChatMessage.room_id == room_id,
+            ChatMessage.is_deleted == False
+        ).order_by(ChatMessage.id.desc()).limit(limit).all()
+        
+        # 메시지 순서를 시간순으로 정렬 (최신 메시지가 마지막)
+        messages = list(reversed(messages))
+        
+        return {
+            "messages": [
+                {
+                    "id": msg.id,
+                    "content": msg.content,
+                    "image_urls": json.loads(msg.image_urls) if msg.image_urls else None,
+                    "sender_id": msg.sender_id,
+                    "room_id": msg.room_id,
+                    "created_at": msg.sent_at.isoformat() if msg.sent_at else None,
+                    "is_deleted": msg.is_deleted
+                }
+                for msg in messages
+            ],
+            "room_info": {
+                "id": room.id,
+                "name": room.name,
+                "type": room.type,
+                "description": room.description
+            }
+        }
 
 # 새로운 Room 모델용 메시지 전송 API
 @router.post("/rooms/{room_id}/messages/new")
@@ -614,6 +797,8 @@ async def send_room_message(
             "user_id": current_user.id,
             "message_id": new_message.id,
             "sender_id": new_message.sender_id,
+            "sender_nickname": current_user.nickname,  # 🆕 발신자 닉네임
+            "sender_profile_image_url": current_user.profile_image_url,  # 🆕 발신자 프로필 이미지
             "content": new_message.content,
             "sent_at": new_message.sent_at.isoformat() if new_message.sent_at else None
         }
@@ -648,8 +833,12 @@ async def send_room_message(
         "content": new_message.content,
         "image_urls": json.loads(new_message.image_urls) if new_message.image_urls else None,
         "sender_id": new_message.sender_id,
+        "sender_nickname": current_user.nickname,  # 🆕 발신자 닉네임
+        "sender_profile_image_url": current_user.profile_image_url,  # 🆕 발신자 프로필 이미지
         "room_id": new_message.room_id,
-        "created_at": new_message.sent_at.isoformat() if new_message.sent_at else None
+        "client_msg_id": new_message.client_msg_id,
+        "sent_at": new_message.sent_at.isoformat() if new_message.sent_at else None,
+        "is_deleted": new_message.is_deleted
     }
 
 # 이미지 업로드 및 전송 (최대 10장)
@@ -743,13 +932,20 @@ async def upload_room_images(
             "type": "message",
             "room_id": room_id,
             "user_id": current_user.id,
+            "message_id": msg.id,
+            "sender_id": msg.sender_id,
+            "sender_nickname": current_user.nickname,  # 🆕 발신자 닉네임
+            "sender_profile_image_url": current_user.profile_image_url,  # 🆕 발신자 프로필 이미지
             "content": "",
             "image_urls": urls,
             "sent_at": msg.sent_at.isoformat() if msg.sent_at else None
         }
-        await manager.broadcast_to_room(json.dumps(ws_message), room_id, exclude_user=current_user.id)
+        await manager.broadcast_to_room(room_id, ws_message, exclude_user=None)
+        print(f"📡 이미지 메시지 WebSocket 브로드캐스트 완료 - 메시지 ID: {msg.id}")
     except Exception as e:
         print(f"❌ 이미지 메시지 WS 브로드캐스트 실패: {e}")
+        import traceback
+        traceback.print_exc()
 
     # 채팅 알림 전송 (현재 채팅방에 없는 사용자에게만)
     try:
@@ -772,8 +968,11 @@ async def upload_room_images(
         "content": "",
         "image_urls": urls,
         "sender_id": msg.sender_id,
+        "sender_nickname": current_user.nickname,  # 🆕 발신자 닉네임
+        "sender_profile_image_url": current_user.profile_image_url,  # 🆕 발신자 프로필 이미지
         "room_id": msg.room_id,
-        "created_at": msg.sent_at.isoformat() if msg.sent_at else None
+        "sent_at": msg.sent_at.isoformat() if msg.sent_at else None,
+        "is_deleted": msg.is_deleted
     }
 
 # 채팅방 참여자 목록 조회 API

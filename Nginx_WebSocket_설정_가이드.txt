@@ -1,0 +1,310 @@
+================================================================================
+                    Nginx WebSocket 설정 완전 가이드
+================================================================================
+
+📋 목차
+1. WebSocket 개요
+2. Nginx 설정 파일
+3. TLS/SSL 설정
+4. WebSocket 프록시 설정
+5. iOS 호환성 문제 해결
+6. 테스트 방법
+7. 문제 해결
+
+================================================================================
+1. WebSocket 개요
+================================================================================
+
+WebSocket은 실시간 양방향 통신을 위한 프로토콜입니다.
+- HTTP/HTTPS를 통한 초기 핸드셰이크 후 WebSocket 프로토콜로 업그레이드
+- iOS에서는 TLS 협상이 실패할 수 있어 특별한 설정이 필요
+
+연결 과정:
+1. 클라이언트: WebSocket 연결 요청 (Upgrade 헤더 포함)
+2. 서버: 101 Switching Protocols 응답
+3. 양방향 실시간 통신 시작
+
+================================================================================
+2. Nginx 설정 파일 (/etc/nginx/conf.d/camsaw.conf)
+================================================================================
+
+server {
+    listen 80;
+    server_name camsaw.kro.kr;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name camsaw.kro.kr;
+
+    # SSL 인증서 설정 (ZeroSSL)
+    ssl_certificate /etc/letsencrypt/live/camsaw.kro.kr/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/camsaw.kro.kr/privkey.pem;
+    
+    # TLS 프로토콜 설정
+    ssl_protocols TLSv1.2 TLSv1.3;
+    
+    # iOS 호환성을 위한 최신 cipher suite 설정
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305;
+    
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # 보안 헤더
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    client_max_body_size 10M;
+
+    # WebSocket 프록시 설정 (가장 먼저 정의)
+    location /ws {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket 연결 유지
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+        proxy_connect_timeout 86400;
+        
+        # 버퍼링 비활성화
+        proxy_buffering off;
+        proxy_cache off;
+        
+        # 로그 설정
+        access_log /var/log/nginx/websocket_access.log;
+        error_log /var/log/nginx/websocket_error.log;
+    }
+
+    # API 프록시 설정
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 타임아웃 설정
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_connect_timeout 60s;
+        
+        # 로그 설정
+        access_log /var/log/nginx/api_access.log;
+        error_log /var/log/nginx/api_error.log;
+    }
+}
+
+================================================================================
+3. TLS/SSL 설정 상세 설명
+================================================================================
+
+3.1 SSL 인증서
+- ZeroSSL 인증서 사용
+- 위치: /etc/letsencrypt/live/camsaw.kro.kr/
+- 파일: fullchain.pem, privkey.pem
+
+3.2 TLS 프로토콜
+- TLSv1.2, TLSv1.3만 허용
+- 보안상 안전한 프로토콜만 사용
+
+3.3 Cipher Suite (iOS 호환성 핵심)
+ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305
+
+각 cipher의 의미:
+- ECDHE: Elliptic Curve Diffie-Hellman Ephemeral (키 교환)
+- ECDSA: Elliptic Curve Digital Signature Algorithm (서명)
+- RSA: RSA 알고리즘 (서명)
+- AES128/256-GCM: AES 암호화 (128/256비트)
+- CHACHA20-POLY1305: ChaCha20 암호화 + Poly1305 인증
+- SHA256/384: 해시 함수
+
+iOS에서 ECDSA 인증서 사용 시 ECDHE-ECDSA cipher가 반드시 필요합니다.
+
+================================================================================
+4. WebSocket 프록시 설정 상세
+================================================================================
+
+4.1 location 블록 순서
+- /ws 블록이 / 블록보다 먼저 정의되어야 함
+- Nginx는 첫 번째 매칭되는 location 블록을 사용
+
+4.2 필수 헤더
+- Upgrade: $http_upgrade (WebSocket 프로토콜 업그레이드)
+- Connection: "upgrade" (연결 유지)
+
+4.3 타임아웃 설정
+- proxy_read_timeout 86400: 읽기 타임아웃 (24시간)
+- proxy_send_timeout 86400: 전송 타임아웃 (24시간)
+- proxy_connect_timeout 86400: 연결 타임아웃 (24시간)
+
+4.4 버퍼링 비활성화
+- proxy_buffering off: 실시간 통신을 위해 버퍼링 비활성화
+- proxy_cache off: 캐시 비활성화
+
+================================================================================
+5. iOS 호환성 문제 해결
+================================================================================
+
+5.1 OSStatus error -9824
+- 원인: TLS 핸드셰이크 실패
+- 해결: ECDHE-ECDSA cipher 추가
+
+5.2 HTTP/2 제거
+- HTTP/2는 WebSocket과 호환성 문제가 있음
+- listen 443 ssl; (http2 제거)
+
+5.3 Cipher Suite 순서
+- ECDHE-ECDSA를 먼저 배치하여 우선 선택되도록 함
+
+================================================================================
+6. 테스트 방법
+================================================================================
+
+6.1 Nginx 설정 테스트
+```bash
+sudo nginx -t
+```
+
+6.2 WebSocket 연결 테스트
+```bash
+# HTTPS WebSocket 테스트
+curl -i -N -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+     -H 'Sec-WebSocket-Version: 13' \
+     -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+     https://camsaw.kro.kr/ws/1
+
+# HTTP WebSocket 테스트 (직접 FastAPI)
+curl -i -N -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+     -H 'Sec-WebSocket-Version: 13' \
+     -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+     http://your-server-ip:5000/ws/1
+```
+
+6.3 WebSocket 라우터 테스트
+```bash
+curl -k https://camsaw.kro.kr/ws/test
+```
+
+6.4 로그 확인
+```bash
+# WebSocket 액세스 로그
+sudo tail -f /var/log/nginx/websocket_access.log
+
+# WebSocket 에러 로그
+sudo tail -f /var/log/nginx/websocket_error.log
+
+# API 액세스 로그
+sudo tail -f /var/log/nginx/api_access.log
+```
+
+================================================================================
+7. 문제 해결
+================================================================================
+
+7.1 WebSocket 연결 실패 (404 Not Found)
+- location /ws 블록이 올바르게 정의되었는지 확인
+- Nginx 설정 테스트 및 재시작
+
+7.2 TLS 협상 실패 (OSStatus -9824)
+- cipher suite에 ECDHE-ECDSA 포함 확인
+- SSL 인증서 유효성 확인
+
+7.3 연결 타임아웃
+- proxy_read_timeout, proxy_send_timeout 값 확인
+- 방화벽 설정 확인
+
+7.4 메시지 전송 실패
+- WebSocket 연결 상태 확인
+- 백엔드 FastAPI 서버 상태 확인
+
+================================================================================
+8. 명령어 모음
+================================================================================
+
+# Nginx 설정 테스트
+sudo nginx -t
+
+# Nginx 재시작
+sudo systemctl restart nginx
+
+# Nginx 상태 확인
+sudo systemctl status nginx
+
+# SSL 인증서 확인
+sudo openssl x509 -in /etc/letsencrypt/live/camsaw.kro.kr/fullchain.pem -text -noout
+
+# 포트 리스닝 확인
+sudo netstat -tlnp | grep :443
+sudo netstat -tlnp | grep :5000
+
+# 로그 실시간 확인
+sudo tail -f /var/log/nginx/websocket_access.log
+sudo tail -f /var/log/nginx/websocket_error.log
+
+# FastAPI 서버 재시작
+cd /home/ec2-user/camsaw
+pkill -f uvicorn
+/home/ec2-user/camsaw/venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 5000 --limit-request-line 0 --limit-request-field_size 0 --limit-request-fields 0
+
+================================================================================
+9. 프론트엔드 설정
+================================================================================
+
+9.1 WebSocket URL 생성
+```typescript
+const API_BASE_URL = "https://camsaw.kro.kr";
+const wsBase = API_BASE_URL.replace(/^https:/, 'wss:');
+const wsUrl = `${wsBase}/ws/${userId}`;
+// 결과: wss://camsaw.kro.kr/ws/1
+```
+
+9.2 iOS 네트워크 보안 설정 (app.json)
+```json
+{
+  "ios": {
+    "infoPlist": {
+      "NSAppTransportSecurity": {
+        "NSAllowsArbitraryLoads": true,
+        "NSExceptionDomains": {
+          "camsaw.kro.kr": {
+            "NSExceptionAllowsInsecureHTTPLoads": true,
+            "NSExceptionMinimumTLSVersion": "1.0",
+            "NSExceptionRequiresForwardSecrecy": false,
+            "NSIncludesSubdomains": true
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+================================================================================
+10. 최종 확인 사항
+================================================================================
+
+✅ Nginx 설정 파일 문법 오류 없음
+✅ SSL 인증서 유효함
+✅ WebSocket location 블록 올바르게 정의됨
+✅ Cipher suite에 ECDHE-ECDSA 포함됨
+✅ HTTP/2 제거됨
+✅ 타임아웃 설정 적절함
+✅ 로그 파일 설정됨
+✅ FastAPI 서버 실행 중
+✅ 포트 443, 5000 리스닝 중
+✅ WebSocket 연결 테스트 성공
+
+================================================================================
+작성일: 2025년 8월 18일
+버전: 1.0
+================================================================================

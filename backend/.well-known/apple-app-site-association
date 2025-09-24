@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.dlckdfuf.camsaw",
+        "paths": [
+          "/posts/*/share/*",
+          "/chat/rooms/share/*"
+        ]
+      }
+    ]
+  }
+}

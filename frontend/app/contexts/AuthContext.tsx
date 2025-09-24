@@ -27,6 +27,7 @@ interface AuthContextType {
   getFCMToken: () => Promise<string | null>;
   toggleNotifications: (enabled: boolean) => Promise<void>;
   loadNotificationSettings: () => Promise<void>;
+  deactivateAccount: () => Promise<void>; // 🆕 회원탈퇴 함수 추가
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -57,6 +58,7 @@ export const useAuth = () => {
         getFCMToken: async () => null,
         toggleNotifications: async () => {},
         loadNotificationSettings: async () => {},
+        deactivateAccount: async () => {}, // 🆕 회원탈퇴 함수 추가
       };
     }
     
@@ -67,7 +69,7 @@ export const useAuth = () => {
       'isSuspended', 'notificationsEnabled', 'setNotificationsEnabled',
       'login', 'logout', 'checkAuthStatus', 'checkUserPenalties',
       'markPenaltyNotificationAsShown', 'updateFCMToken', 'getFCMToken',
-      'toggleNotifications', 'loadNotificationSettings'
+      'toggleNotifications', 'loadNotificationSettings', 'deactivateAccount' // 🆕 추가
     ] as const;
     
     for (const prop of requiredProps) {
@@ -103,6 +105,7 @@ export const useAuth = () => {
       getFCMToken: async () => null,
       toggleNotifications: async () => {},
       loadNotificationSettings: async () => {},
+      deactivateAccount: async () => {}, // 🆕 회원탈퇴 함수 추가
     };
   }
 };
@@ -121,21 +124,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuthStatus();
   }, []);
 
-  // 인증 상태가 변경될 때마다 처벌 확인
+  // 인증 상태가 변경될 때마다 처벌 확인 (안전하게 처리)
   useEffect(() => {
     if (isAuthenticated && user) {
       console.log('인증 상태 변경됨, 처벌 확인 시작');
-      setTimeout(() => checkUserPenalties(), 1000);
+      setTimeout(() => {
+        try {
+          checkUserPenalties();
+        } catch (error) {
+          console.error('❌ 처벌 확인 실패 (무시):', error);
+        }
+      }, 1000);
     }
   }, [isAuthenticated, user]);
 
-  // 알림 리스너 설정
+  // 알림 리스너 설정 (안전하게 처리)
   useEffect(() => {
     if (isAuthenticated) {
       try {
+        console.log('🔔 알림 리스너 설정 시작');
         notificationService.setupNotificationListeners();
+        console.log('✅ 알림 리스너 설정 완료');
       } catch (error) {
-        console.error('알림 리스너 설정 실패:', error);
+        console.error('❌ 알림 리스너 설정 실패 (무시):', error);
+        // 알림 리스너 설정 실패는 앱의 핵심 기능이 아니므로 무시
       }
     }
   }, [isAuthenticated]);
@@ -166,17 +178,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(true);
         setUser(userInfo);
         
-        // FCM 토큰 발급 및 업데이트
+        // FCM 토큰 발급 및 업데이트 (안전하게 처리)
         try {
+          console.log('🔔 FCM 토큰 발급 시작');
           const fcmToken = await getFCMToken();
           if (fcmToken) {
             await updateFCMToken(fcmToken);
-            console.log('FCM 토큰 발급 및 업데이트 완료');
+            console.log('✅ FCM 토큰 발급 및 업데이트 완료');
           } else {
-            console.log('FCM 토큰 발급 실패 또는 권한 없음');
+            console.log('⚠️ FCM 토큰 발급 실패 또는 권한 없음 (무시)');
           }
         } catch (fcmError) {
-          console.error('FCM 토큰 발급 실패:', fcmError);
+          console.error('❌ FCM 토큰 발급 실패 (무시):', fcmError);
+          // FCM 토큰 발급 실패는 앱의 핵심 기능이 아니므로 무시
         }
 
 
@@ -213,17 +227,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(userInfo);
         console.log('로그인 성공:', userInfo.nickname);
         
-        // FCM 토큰 발급 및 업데이트
+        // FCM 토큰 발급 및 업데이트 (안전하게 처리)
         try {
+          console.log('🔔 FCM 토큰 발급 시작');
           const fcmToken = await getFCMToken();
           if (fcmToken) {
             await updateFCMToken(fcmToken);
-            console.log('FCM 토큰 발급 및 업데이트 완료');
+            console.log('✅ FCM 토큰 발급 및 업데이트 완료');
           } else {
-            console.log('FCM 토큰 발급 실패 또는 권한 없음');
+            console.log('⚠️ FCM 토큰 발급 실패 또는 권한 없음 (무시)');
           }
         } catch (fcmError) {
-          console.error('FCM 토큰 발급 실패:', fcmError);
+          console.error('❌ FCM 토큰 발급 실패 (무시):', fcmError);
+          // FCM 토큰 발급 실패는 앱의 핵심 기능이 아니므로 무시
         }
 
 
@@ -240,6 +256,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       console.log('로그아웃 처리 중...');
+      
+      // 🆕 FCM 토큰 정리 (서버에서 토큰 제거)
+      try {
+        const token = await AsyncStorage.getItem('access_token');
+        if (token && user) {
+          console.log('FCM 토큰 서버에서 제거 중...');
+          await userService.clearFCMToken();
+        }
+      } catch (fcmError) {
+        console.error('FCM 토큰 정리 실패 (무시):', fcmError);
+      }
       
       await userService.logout();
       // 사용자 ID도 삭제
@@ -339,23 +366,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateFCMToken = async (token: string) => {
     try {
-      if (user) {
-        await userService.updateFCMToken(token);
-        console.log('FCM 토큰 업데이트 완료');
+      // 🔧 인증 상태와 토큰 유효성 확인
+      const accessToken = await AsyncStorage.getItem('access_token');
+      if (!isAuthenticated || !user || !accessToken) {
+        console.log('인증되지 않은 상태, FCM 토큰 업데이트 건너뜀');
+        return;
       }
+
+      await userService.updateFCMToken(token);
+      console.log('FCM 토큰 업데이트 완료');
     } catch (error) {
       console.error('FCM 토큰 업데이트 실패:', error);
+      // 401 오류인 경우 로그아웃 처리
+      if (error instanceof Error && error.message.includes('401')) {
+        console.log('FCM 토큰 업데이트 중 인증 오류, 로그아웃 처리');
+        await logout();
+      }
     }
   };
 
   const getFCMToken = async (): Promise<string | null> => {
     try {
-      // 인증 상태 확인
-      if (!isAuthenticated || !user) {
-        console.log('인증되지 않은 상태, FCM 토큰 발급 건너뜀');
-        return null;
-      }
-      
+      console.log('🔔 getFCMToken 호출됨');
       return await notificationService.getFCMToken();
     } catch (error) {
       console.error('FCM 토큰 발급 실패:', error);
@@ -389,6 +421,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // 🆕 회원탈퇴 함수
+  const deactivateAccount = async () => {
+    try {
+      console.log('🗑️ 회원탈퇴 처리 시작');
+      
+      if (!isAuthenticated || !user) {
+        throw new Error('로그인이 필요합니다.');
+      }
+      
+      // 서버에 회원탈퇴 요청
+      const result = await userService.deactivateAccount();
+      console.log('✅ 회원탈퇴 서버 처리 완료:', result);
+      
+      // 로컬 상태 정리 (로그아웃과 동일)
+      await AsyncStorage.removeItem('access_token');
+      await AsyncStorage.removeItem('user_id');
+      
+      setIsAuthenticated(false);
+      setUser(null);
+      setShowPenaltyNotification(false);
+      setShowSuspensionModal(false);
+      
+      console.log('✅ 회원탈퇴 완료 - 로컬 상태 정리됨');
+    } catch (error) {
+      console.error('❌ 회원탈퇴 실패:', error);
+      throw error;
+    }
+  };
+
   const value: AuthContextType = {
     isAuthenticated,
     user,
@@ -409,6 +470,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     getFCMToken,
     toggleNotifications,
     loadNotificationSettings,
+    deactivateAccount, // 🆕 회원탈퇴 함수 추가
   };
 
   // value 객체의 모든 속성이 정의되어 있는지 확인

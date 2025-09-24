@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { postService, PostListResponse } from '../services/postService';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 
 export default function ScrapListScreen() {
   const router = useRouter();
@@ -24,10 +25,11 @@ export default function ScrapListScreen() {
     try {
       setLoading(true);
       const scrapsData = await postService.getMyScraps(0, 100);
-      setScraps(scrapsData);
-      console.log('스크랩 목록 로드 완료:', scrapsData.length, '개');
+      setScraps(scrapsData || []);
+      console.log('스크랩 목록 로드 완료:', scrapsData?.length || 0, '개');
     } catch (error) {
       console.error('스크랩 목록 로드 실패:', error);
+      setScraps([]); // 오류 시 빈 배열로 설정
     } finally {
       setLoading(false);
     }
@@ -82,56 +84,29 @@ export default function ScrapListScreen() {
       activeOpacity={0.7}
     >
       <View style={styles.postHeader}>
-        <View style={styles.authorContainer}>
-          {item.author_profile_image_url ? (
-            <Image
-              source={{ uri: item.author_profile_image_url }}
-              style={styles.authorImage}
-            />
-          ) : (
-            <Image
-              source={require('../../assets/images/camsaw_human.png')}
-              style={styles.authorImage}
-            />
-          )}
-          <Text style={styles.authorName}>{item.author_nickname}</Text>
+        <View style={styles.authorInfo}>
+          <Text style={styles.authorName}>{getDisplayNickname(item.author_nickname)}</Text>
+          <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
         </View>
-        <Text style={styles.timeText}>{formatTimeAgo(item.created_at)}</Text>
       </View>
-
-      <View style={styles.postContent}>
-        <View style={styles.categoryContainer}>
-          <View style={[styles.categoryTag, { backgroundColor: getCategoryColor(item.category) }]}>
-            <Text style={styles.categoryText}>{item.category}</Text>
-          </View>
-        </View>
-        
-        <Text style={styles.postTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        
-        {/* 위치 카테고리인 경우에만 위치 정보 표시 */}
-        {item.category === '위치' && (
-          <View style={styles.locationContainer}>
-            <Ionicons name="location" size={14} color="#000000" style={{ marginRight: 4 }} />
-            <Text style={styles.locationText}>{item.building_name}</Text>
-          </View>
-        )}
-      </View>
-
+      
+      <Text style={styles.postTitle} numberOfLines={2}>
+        {item.title}
+      </Text>
+      
       <View style={styles.postFooter}>
-        <View style={styles.statsContainer}>
+        <View style={styles.postStats}>
           <View style={styles.statItem}>
-            <Ionicons name="eye" size={14} color="#000000" style={{ marginRight: 4 }} />
+            <Ionicons name="eye-outline" size={16} color="#6c757d" />
             <Text style={styles.statText}>{item.view_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="heart" size={14} color="#000000" style={{ marginRight: 4 }} />
-            <Text style={styles.statText}>{item.heart_count}</Text>
+            <Ionicons name="chatbubble-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.comment_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="chatbubble" size={14} color="#000000" style={{ marginRight: 4 }} />
-            <Text style={styles.statText}>{item.comment_count}</Text>
+            <Ionicons name="heart-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.heart_count}</Text>
           </View>
         </View>
       </View>
@@ -140,13 +115,12 @@ export default function ScrapListScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="#000000" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>스크랩 목록</Text>
-          <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#000000" />
@@ -157,13 +131,12 @@ export default function ScrapListScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>스크랩 목록</Text>
-        <View style={styles.placeholder} />
       </View>
 
       {scraps.length === 0 ? (
@@ -198,30 +171,28 @@ export default function ScrapListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f8f9fa',
   },
   header: {
+    backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: '#e9ecef',
+    position: 'relative',
   },
   backButton: {
     padding: 8,
+    position: 'absolute',
+    left: 8,
   },
-
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000000',
-    fontFamily: 'GmarketSans',
-  },
-  placeholder: {
-    width: 40,
+    color: '#212529',
   },
   loadingContainer: {
     flex: 1,
@@ -231,27 +202,25 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
-    fontFamily: 'GmarketSans',
+    color: '#6c757d',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000000',
+    color: '#495057',
+    marginTop: 16,
     marginBottom: 8,
-    fontFamily: 'GmarketSans',
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: '#6c757d',
     textAlign: 'center',
-    fontFamily: 'GmarketSans',
   },
   list: {
     flex: 1,
@@ -260,7 +229,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   postItem: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -277,82 +246,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  authorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  authorImage: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginRight: 8,
+  authorInfo: {
+    flex: 1,
   },
   authorName: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#000000',
-    fontFamily: 'GmarketSans',
+    color: '#495057',
   },
-  timeText: {
+  postTime: {
     fontSize: 12,
-    color: '#999',
-    fontFamily: 'GmarketSans',
-  },
-  postContent: {
-    marginBottom: 12,
-  },
-  categoryContainer: {
-    marginBottom: 8,
-  },
-  categoryTag: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  categoryText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontFamily: 'GmarketSans',
+    color: '#6c757d',
+    marginTop: 2,
   },
   postTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000000',
+    color: '#212529',
     marginBottom: 8,
     lineHeight: 22,
-    fontFamily: 'GmarketSans',
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  locationText: {
-    fontSize: 12,
-    color: '#000000',
-    fontFamily: 'GmarketSans',
   },
   postFooter: {
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    paddingTop: 12,
-  },
-  statsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  postStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 16,
   },
-
   statText: {
     fontSize: 12,
-    color: '#000000',
-    fontFamily: 'GmarketSans',
+    color: '#6c757d',
+    marginLeft: 4,
   },
 });

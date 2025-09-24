@@ -137,8 +137,14 @@ class S3Service:
 
             # 파일명 정규화 및 상위 폴더 결정
             norm = (filename or '').lstrip('/')
-            # chat/, users/, news/, notice/, posts/ 로 시작하면 그대로 사용
-            if norm.startswith(('chat/', 'users/', 'news/', 'notice/', 'posts/')):
+            print(f"S3 업로드 - 정규화된 filename: {norm}")
+            
+            # 그룹 이미지인 경우 특별 처리 (최우선)
+            if norm.startswith('group/'):
+                s3_key = norm
+                print(f"S3 업로드 - 그룹 이미지 감지: {s3_key}")
+            # 다른 특정 폴더들
+            elif norm.startswith(('chat/', 'users/', 'news/', 'notice/', 'posts/')):
                 s3_key = norm
             else:
                 # 기본 posts 폴더로 수용
@@ -253,25 +259,28 @@ class S3Service:
     
     async def _optimize_image(self, image_data: bytes) -> bytes:
         """
-        이미지를 최적화합니다 (선택사항).
+        이미지를 최적화합니다 (업로드 크기 대폭 감소).
         """
         try:
             # PIL로 이미지 열기
             image = Image.open(io.BytesIO(image_data))
             
-            # 이미지가 너무 크면 리사이즈 (업로드 바디 축소)
-            max_size = (1280, 1280)
+            # 이미지가 너무 크면 리사이즈 (업로드 바디 대폭 축소)
+            max_size = (800, 800)  # 1280에서 800으로 줄임
             if image.size[0] > max_size[0] or image.size[1] > max_size[1]:
                 image.thumbnail(max_size, Image.Resampling.LANCZOS)
             
-            # JPEG로 변환하여 용량 줄이기 (품질 80%)
+            # JPEG로 변환하여 용량 대폭 줄이기 (품질 60%로 더 압축)
             output = io.BytesIO()
             if image.mode in ("RGBA", "P"):
                 image = image.convert("RGB")
-            image.save(output, format='JPEG', quality=80, optimize=True)
+            image.save(output, format='JPEG', quality=60, optimize=True)  # 80%에서 60%로 줄임
             output.seek(0)
             
-            return output.getvalue()
+            optimized_data = output.getvalue()
+            print(f"이미지 최적화 완료: 원본 {len(image_data)} bytes → 최적화 {len(optimized_data)} bytes ({(1 - len(optimized_data)/len(image_data))*100:.1f}% 감소)")
+            
+            return optimized_data
             
         except Exception as e:
             print(f"이미지 최적화 오류: {e}")

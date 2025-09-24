@@ -48,4 +48,17 @@ def should_increment_view_count(last_view_date: datetime):
         return True
     
     # 마지막 조회가 오늘 06:00 이후이면 같은 날이므로 조회수 증가 안함
-    return False 
+    return False
+
+def convert_to_kst(utc_datetime):
+    """UTC 시간을 한국 시간으로 변환합니다."""
+    if utc_datetime is None:
+        return None
+    
+    # timezone 정보가 없으면 UTC로 가정
+    if utc_datetime.tzinfo is None:
+        utc_datetime = utc_datetime.replace(tzinfo=timezone.utc)
+    
+    # 한국 시간으로 변환
+    korea_tz = get_korea_timezone()
+    return utc_datetime.astimezone(korea_tz) 

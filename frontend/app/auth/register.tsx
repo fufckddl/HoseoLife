@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Alert, TouchableOpacity, Image, Modal, Pressable, FlatList } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Alert, TouchableOpacity, Image, Modal, Pressable, FlatList, ActivityIndicator } from 'react-native';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
-const API_URL = 'https://camsaw.kro.kr';
+const API_URL = 'https://hoseolife.kro.kr';
 const SCHOOLS = [
   { label: '호서대학교 아산캠퍼스', value: 'hoseo_asan' },
   { label: '호서대학교 천안캠퍼스', value: 'hoseo_cheonan' },
@@ -20,11 +21,87 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [school, setSchool] = useState('');
   const [schoolModal, setSchoolModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  
+  // 🆕 닉네임 유효성 검사 상태
+  const [nicknameChecking, setNicknameChecking] = useState(false);
+  const [nicknameValid, setNicknameValid] = useState<boolean | null>(null);
+  const [nicknameMessage, setNicknameMessage] = useState('');
 
   // 학교 이메일 형식 체크 함수
   const isValidSchoolEmail = (email: string) => {
     return /^\d{8}@vision\.hoseo\.edu$/.test(email);
   };
+
+  // 🆕 닉네임 중복 체크 함수
+  const checkNicknameAvailability = async (nicknameToCheck: string) => {
+    if (!nicknameToCheck.trim()) {
+      setNicknameValid(null);
+      setNicknameMessage('');
+      return;
+    }
+
+    // 기본 유효성 검사 (길이, 특수문자)
+    if (nicknameToCheck.length < 2 || nicknameToCheck.length > 20) {
+      setNicknameValid(false);
+      setNicknameMessage('닉네임은 2-20자 사이여야 합니다.');
+      return;
+    }
+
+    const koreanEnglishNumberRegex = /^[가-힣a-zA-Z0-9]+$/;
+    if (!koreanEnglishNumberRegex.test(nicknameToCheck)) {
+      setNicknameValid(false);
+      setNicknameMessage('닉네임은 한글, 영문, 숫자만 사용 가능합니다.');
+      return;
+    }
+
+    try {
+      setNicknameChecking(true);
+      console.log('🔍 닉네임 중복 체크:', nicknameToCheck);
+      
+      const response = await axios.get(`${API_URL}/users/check-nickname/${encodeURIComponent(nicknameToCheck)}`);
+      const result = response.data;
+      
+      setNicknameValid(result.available);
+      setNicknameMessage(result.message);
+      
+      console.log('✅ 닉네임 체크 결과:', result);
+    } catch (error: any) {
+      console.error('❌ 닉네임 체크 실패:', error);
+      setNicknameValid(false);
+      setNicknameMessage('닉네임 확인 중 오류가 발생했습니다.');
+    } finally {
+      setNicknameChecking(false);
+    }
+  };
+
+  // 🆕 닉네임 입력 핸들러 (디바운싱 적용)
+  const handleNicknameChange = (text: string) => {
+    setNickname(text);
+    setNicknameValid(null);
+    setNicknameMessage('');
+    
+    // 디바운싱: 500ms 후에 중복 체크 실행
+    if (nicknameTimeoutRef.current) {
+      clearTimeout(nicknameTimeoutRef.current);
+    }
+    
+    nicknameTimeoutRef.current = setTimeout(() => {
+      checkNicknameAvailability(text);
+    }, 500);
+  };
+
+  // 🆕 닉네임 체크 타이머 ref
+  const nicknameTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // 🆕 컴포넌트 언마운트 시 타이머 정리
+  React.useEffect(() => {
+    return () => {
+      if (nicknameTimeoutRef.current) {
+        clearTimeout(nicknameTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 이메일 인증코드 발송
   const sendCode = async () => {
@@ -69,14 +146,44 @@ export default function RegisterScreen() {
 
   // 회원가입 요청
   const register = async () => {
+    // 🔧 닉네임 유효성 최종 확인
+    if (!nickname.trim()) {
+      Alert.alert('닉네임을 입력해주세요.');
+      return;
+    }
+    
+    if (nicknameValid !== true) {
+      Alert.alert('유효하지 않은 닉네임', nicknameMessage || '닉네임을 다시 확인해주세요.');
+      return;
+    }
+    
+    if (!password.trim()) {
+      Alert.alert('비밀번호를 입력해주세요.');
+      return;
+    }
+    
+    if (password.length < 6) {
+      Alert.alert('비밀번호는 6자 이상이어야 합니다.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await axios.post(`${API_URL}/users/register`, { email, nickname, password, university: school });
-      Alert.alert('회원가입 완료!', '', [
+      console.log('🚀 회원가입 요청:', { email, nickname, university: school });
+      await axios.post(`${API_URL}/users/register`, { 
+        email, 
+        nickname, 
+        password, 
+        university: school 
+      });
+      
+      Alert.alert('회원가입 완료!', '로그인 페이지로 이동합니다.', [
         { text: '확인', onPress: () => router.push('/auth/login') }
       ]);
     } catch (e: any) {
-      Alert.alert('회원가입 실패', e?.response?.data?.detail || '오류가 발생했습니다.');
+      console.error('❌ 회원가입 실패:', e);
+      const errorMessage = e?.response?.data?.detail || '오류가 발생했습니다.';
+      Alert.alert('회원가입 실패', errorMessage);
       setLoading(false);
     }
   };
@@ -85,8 +192,14 @@ export default function RegisterScreen() {
     <View style={styles.container}>
       {step === 1 && (
         <>
-          <Image source={require('../../assets/images/camsaw_Logo.png')} style={styles.logo} />
-          <Text style={styles.title}>캠봤다</Text>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.push('/auth/login')}
+          >
+            <Ionicons name="arrow-back" size={24} color="#000000" />
+          </TouchableOpacity>
+          <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
+          <Text style={styles.title}>HoseoLife : 호서라이프</Text>
           {/* 학교 선택 입력란 */}
           <TouchableOpacity style={styles.schoolInput} onPress={() => setSchoolModal(true)}>
             <Text style={[styles.schoolInputText, !school && { color: '#888' }]}> {school ? SCHOOLS.find(s => s.value === school)?.label : '학교 선택하기'} </Text>
@@ -134,7 +247,13 @@ export default function RegisterScreen() {
       )}
       {step === 2 && (
         <>
-          <Image source={require('../../assets/images/camsaw_Logo.png')} style={styles.logo} />
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => setStep(1)}
+          >
+            <Ionicons name="arrow-back" size={24} color="#000000" />
+          </TouchableOpacity>
+          <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
           <Text style={styles.title}>캠봤다</Text>
           <Text style={styles.guide}>인증번호를 입력해주세요.</Text>
           <TextInput
@@ -156,38 +275,91 @@ export default function RegisterScreen() {
       )}
       {step === 3 && (
         <>
-          <Image source={require('../../assets/images/camsaw_Logo.png')} style={styles.logo} />
-          <Text style={styles.title}>캠봤다</Text>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => setStep(2)}
+          >
+            <Ionicons name="arrow-back" size={24} color="#000000" />
+          </TouchableOpacity>
+          <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
+          <Text style={styles.title}>HoseoLife : 호서라이프</Text>
           <Text style={styles.guide}>닉네임과 비밀번호를 설정해주세요.</Text>
           <Text style={styles.label}>닉네임</Text>
-          <TextInput
-            style={styles.emailInput}
-            placeholder="닉네임"
-            value={nickname}
-            onChangeText={setNickname}
-            placeholderTextColor="#888"
-          />
+          <View style={styles.nicknameContainer}>
+            <TextInput
+              style={[
+                styles.nicknameInput,
+                nicknameValid === true && styles.validInput,
+                nicknameValid === false && styles.invalidInput
+              ]}
+              placeholder="닉네임 (2-20자, 한글/영문/숫자)"
+              value={nickname}
+              onChangeText={handleNicknameChange}
+              placeholderTextColor="#888"
+              autoCapitalize="none"
+            />
+            
+            {/* 🆕 유효성 검사 아이콘 */}
+            <View style={styles.nicknameStatusContainer}>
+              {nicknameChecking && (
+                <ActivityIndicator size="small" color="#007AFF" />
+              )}
+              {!nicknameChecking && nicknameValid === true && (
+                <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+              )}
+              {!nicknameChecking && nicknameValid === false && (
+                <Ionicons name="close-circle" size={20} color="#FF3B30" />
+              )}
+            </View>
+          </View>
+          
+          {/* 🆕 닉네임 유효성 메시지 */}
+          {nicknameMessage && (
+            <Text style={[
+              styles.nicknameMessage,
+              nicknameValid === true ? styles.validMessage : styles.invalidMessage
+            ]}>
+              {nicknameMessage}
+            </Text>
+          )}
           <Text style={styles.label}>비밀번호</Text>
-          <TextInput
-            style={styles.emailInput}
-            placeholder="비밀번호"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            placeholderTextColor="#888"
-          />
+          <View style={styles.passwordContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="비밀번호"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              placeholderTextColor="#888"
+            />
+            <TouchableOpacity
+              style={styles.eyeIcon}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Ionicons 
+                name={showPassword ? "eye-off" : "eye"} 
+                size={20} 
+                color="#888" 
+              />
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
-            style={[styles.button, loading && { opacity: 0.6 }]}
+            style={[
+              styles.button, 
+              (loading || nicknameValid !== true || !password.trim()) && { opacity: 0.6 }
+            ]}
             onPress={register}
-            disabled={loading}
+            disabled={loading || nicknameValid !== true || !password.trim()}
           >
-            <Text style={styles.buttonText}>회원가입</Text>
+            <Text style={styles.buttonText}>
+              {loading ? '회원가입 중...' : '회원가입'}
+            </Text>
           </TouchableOpacity>
         </>
       )}
       {/* 하단 로그인 이동 */}
       <TouchableOpacity onPress={() => router.push('/auth/login')} style={{ marginTop: 32, alignItems: 'center' }}>
-        <Text style={{ color: '#007AFF', fontSize: 16 }}>이미 계정이 있으신가요? 로그인하기</Text>
+        <Text style={{ color: '#000000', fontSize: 16 }}>이미 계정이 있으신가요? 로그인하기</Text>
       </TouchableOpacity>
     </View>
   );
@@ -195,9 +367,10 @@ export default function RegisterScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', padding: 24 },
+  backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
   logo: { width: 140, height: 140, marginBottom: 16, resizeMode: 'contain' },
-  title: { fontSize: 36, fontWeight: 'bold', marginBottom: 32, color: '#222' },
-  guide: { fontSize: 15, color: '#6A7BA2', marginBottom: 12, alignSelf: 'flex-start' },
+  title: { fontSize: 36, fontWeight: 'bold', marginBottom: 32, color: '#000000' },
+  guide: { fontSize: 15, color: '#000000', marginBottom: 12, alignSelf: 'flex-start' },
   schoolInput: {
     width: '100%',
     backgroundColor: '#fff',
@@ -213,7 +386,7 @@ const styles = StyleSheet.create({
   schoolInputText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#222',
+    color: '#000000',
   },
   modalBg: {
     position: 'absolute',
@@ -245,7 +418,7 @@ const styles = StyleSheet.create({
     width: 10, height: 10, borderRadius: 5, backgroundColor: '#E5E7EB', marginRight: 16,
   },
   schoolLabel: {
-    fontSize: 18, fontWeight: 'bold', color: '#222',
+    fontSize: 18, fontWeight: 'bold', color: '#000000',
   },
   emailInput: {
     width: '100%',
@@ -257,11 +430,31 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 24,
-    color: '#222',
+    color: '#000000',
+  },
+  passwordContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 16,
+    marginBottom: 24,
+  },
+  passwordInput: {
+    flex: 1,
+    padding: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000000',
+  },
+  eyeIcon: {
+    padding: 16,
   },
   button: {
     width: '100%',
-    backgroundColor: '#A9CBFA',
+    backgroundColor: '#000000',
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
@@ -272,6 +465,49 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
-  label: { fontSize: 16, marginBottom: 8, alignSelf: 'flex-start' },
+  label: { fontSize: 16, marginBottom: 8, alignSelf: 'flex-start', color: '#000000' },
   input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 6, padding: 12, marginBottom: 16, width: '100%' },
+  
+  // 🆕 닉네임 관련 스타일들
+  nicknameContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 16,
+    marginBottom: 8,
+  },
+  nicknameInput: {
+    flex: 1,
+    padding: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000000',
+  },
+  validInput: {
+    borderColor: '#34C759',
+  },
+  invalidInput: {
+    borderColor: '#FF3B30',
+  },
+  nicknameStatusContainer: {
+    paddingRight: 16,
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nicknameMessage: {
+    fontSize: 14,
+    marginBottom: 16,
+    alignSelf: 'flex-start',
+    fontWeight: '500',
+  },
+  validMessage: {
+    color: '#34C759',
+  },
+  invalidMessage: {
+    color: '#FF3B30',
+  },
 }); 

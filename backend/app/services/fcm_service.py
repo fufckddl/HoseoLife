@@ -28,6 +28,41 @@ def send_fcm_to_all_users(db, title, body):
     print(f"전체 알림 전송 결과: {result}")
     return result
 
+def save_notification_record(db, user_id: int, title: str, message: str, notification_type: str, data: Optional[dict] = None):
+    """알림 기록을 데이터베이스에 저장"""
+    try:
+        from app.utils.date_utils import get_current_korea_time
+        from sqlalchemy import text
+        
+        current_time = get_current_korea_time()
+        print(f"🕐 현재 한국 시간: {current_time}")
+        
+        # 🔧 직접 SQL을 사용해서 순환 참조 문제 회피
+        insert_sql = text("""
+            INSERT INTO notifications (user_id, title, message, notification_type, data, is_read, created_at, updated_at)
+            VALUES (:user_id, :title, :message, :notification_type, :data, :is_read, :created_at, :updated_at)
+        """)
+        
+        result = db.execute(insert_sql, {
+            'user_id': user_id,
+            'title': title,
+            'message': message,
+            'notification_type': notification_type,
+            'data': json.dumps(data) if data else None,
+            'is_read': False,
+            'created_at': current_time,
+            'updated_at': current_time
+        })
+        
+        db.commit()
+        notification_id = result.lastrowid
+        print(f"✅ 알림 기록 저장 완료: ID {notification_id}, 사용자 {user_id}, 타입 {notification_type}, 시간 {current_time}")
+        return {"id": notification_id, "created_at": current_time}
+    except Exception as e:
+        print(f"❌ 알림 기록 저장 실패: {e}")
+        db.rollback()
+        return None
+
 def send_fcm_to_user(db, user_id: int, title: str, body: str, data: Optional[dict] = None):
     """특정 사용자에게 FCM 알림 전송"""
     print(f"=== FCM 알림 전송 시작 ===")
@@ -67,7 +102,14 @@ def send_fcm_to_user(db, user_id: int, title: str, body: str, data: Optional[dic
     
     try:
         # Expo Push Token 사용
-        return send_expo_notification(user.fcm_token, title, body, data)
+        result = send_expo_notification(user.fcm_token, title, body, data)
+        
+        # 🆕 FCM 전송 성공시 알림 기록 저장
+        if result.get("success"):
+            notification_type = data.get("type", "general") if data else "general"
+            save_notification_record(db, user_id, title, body, notification_type, data)
+        
+        return result
             
     except Exception as e:
         print(f"FCM 알림 전송 실패: {e}")

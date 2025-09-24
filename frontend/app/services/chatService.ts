@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChatRoom, ChatMessage } from './websocketService';
 
-const API_BASE_URL = 'https://camsaw.kro.kr';
+const API_BASE_URL = 'https://hoseolife.kro.kr';
 
 class ChatService {
   private async getAuthHeaders(): Promise<Record<string, string>> {
@@ -369,20 +369,74 @@ class ChatService {
   }
 
   // 방별 알림 설정 조회
-  async getRoomNotifications(roomId: number): Promise<{ room_id: number; notifications_enabled: boolean }>{
+  async getRoomNotifications(room_id: number): Promise<{ room_id: number; notifications_enabled: boolean }>{
     const headers = await this.getAuthHeaders();
-    const resp = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/notifications`, {
+    const resp = await fetch(`${API_BASE_URL}/chat/rooms/${room_id}/notifications`, {
       method: 'GET',
       headers,
     });
     if (!resp.ok) {
       if (resp.status === 404) {
         console.log('🔕 알림 설정 엔드포인트 404 - 기본값 true로 대체');
-        return { room_id: roomId, notifications_enabled: true };
+        return { room_id, notifications_enabled: true };
       }
       throw new Error(`HTTP error! status: ${resp.status}`);
     }
     return resp.json();
+  }
+
+  // 사용자가 채팅방을 나간 시간 조회
+  async getUserLeaveTime(roomId: number): Promise<{ leave_time: string | null }> {
+    try {
+      const headers = await this.getAuthHeaders();
+      console.log('🔍 사용자 나간 시간 조회 - Room ID:', roomId);
+      
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/user-leave-time`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('ℹ️ 사용자가 이전에 나간 기록이 없음');
+          return { leave_time: null };
+        }
+        console.error('❌ 사용자 나간 시간 조회 실패 - 상태:', response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ 사용자 나간 시간 조회 성공:', data);
+      return data;
+    } catch (error) {
+      console.error('❌ 사용자 나간 시간 조회 실패:', error);
+      throw error;
+    }
+  }
+
+  // 멤버십 활성화 (1:1 채팅방 재입장 시)
+  async activateMembership(roomId: number): Promise<any> {
+    try {
+      const headers = await this.getAuthHeaders();
+      console.log('🔄 멤버십 활성화 - Room ID:', roomId);
+      
+      const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/activate-membership`, {
+        method: 'POST',
+        headers,
+      });
+
+      if (!response.ok) {
+        console.error('❌ 멤버십 활성화 실패 - 상태:', response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ 멤버십 활성화 성공:', data);
+      return data;
+    } catch (error) {
+      console.error('❌ 멤버십 활성화 실패:', error);
+      throw error;
+    }
   }
 }
 

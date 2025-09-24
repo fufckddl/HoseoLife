@@ -19,27 +19,42 @@ class User(Base):
     notifications_enabled = Column(Boolean, default=True)  # 알림 활성화 여부
     is_active = Column(Boolean, default=True)  # 사용자 활성화 여부
     
-    # 게시글 관계
-    posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
+    # 게시글 관계 (🔧 탈퇴 시 데이터 유지)
+    posts = relationship("Post", back_populates="author")
     
-    # 댓글 관계
-    comments = relationship("Comment", back_populates="author", cascade="all, delete-orphan")
+    # 댓글 관계 (🔧 탈퇴 시 데이터 유지)
+    comments = relationship("Comment", back_populates="author")
     
-    # 좋아요 관계
-    hearts = relationship("Heart", back_populates="user", cascade="all, delete-orphan")
+    # 좋아요 관계 (🔧 탈퇴 시 데이터 유지)
+    hearts = relationship("Heart", back_populates="user")
     
-    # 스크랩 관계
-    scraps = relationship("Scrap", back_populates="user", cascade="all, delete-orphan")
+    # 스크랩 관계 (🔧 탈퇴 시 데이터 유지)
+    scraps = relationship("Scrap", back_populates="user")
     
-    # 조회 기록 관계
-    view_logs = relationship("ViewLog", back_populates="user", cascade="all, delete-orphan")
+    # 조회 기록 관계 (🔧 탈퇴 시 데이터 유지)
+    view_logs = relationship("ViewLog", back_populates="user")
     
-    # 문의 관계 (양방향 관계, lazy loading 사용)
-    contacts = relationship("Contact", foreign_keys="Contact.user_id", back_populates="user", cascade="all, delete-orphan", lazy="select")
+    # 문의 관계 (🔧 탈퇴 시 데이터 유지)
+    contacts = relationship("Contact", foreign_keys="Contact.user_id", back_populates="user", lazy="select")
     
-    # 알람 관계
-    alarms = relationship("Alarm", back_populates="user", cascade="all, delete-orphan")
+    # 알람 관계 (🔧 탈퇴 시 데이터 유지)
+    alarms = relationship("Alarm", back_populates="user")
     
-    # 채팅 관계 (새로운 Room 모델 사용으로 인해 기존 ChatRoom 관계 제거)
+    # 🆕 알림 기록 관계 (순환 참조 방지를 위해 주석 처리)
+    # notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    
+    # 채팅 관계 (새로운 Room 모델 사용)
     sent_messages = relationship("ChatMessage", foreign_keys="ChatMessage.sender_id")
+    
+    # 채팅방 멤버십 관계
+    memberships = relationship("Membership", back_populates="user")
+    
+    # 채팅방 나간 시간 관계 (🔧 탈퇴 시 데이터 유지)
+    room_leave_times = relationship("UserRoomLeaveTime", back_populates="user")
+    
+    # 강의 시간표 관계는 나중에 추가 (순환 참조 방지)
+    # courses = relationship("Course", back_populates="user", cascade="all, delete-orphan", lazy="select")
+    
+    # 사용자 시간표 관계는 나중에 추가 (순환 참조 방지)
+    # user_schedules = relationship("UserSchedule", back_populates="user", cascade="all, delete-orphan", lazy="select")
     

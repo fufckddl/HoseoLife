@@ -101,28 +101,17 @@ web-build/
 *.key
 *.mobileprovision
 
-# iOS Build Files (managed by Git LFS)
-# *.ipa
-# *.xcarchive
-# *.dSYM
-# *.app
-# *.framework
-# *.bundle
-# *.car
-# *.metallib
-# *.mom
-# *.momd
-# *.ttf
-# *.png
-# *.jpg
-# *.jpeg
-# *.gif
-# *.mp4
-# *.mov
-# *.avi
-# *.zip
-# *.tar.gz
-# *.tgz
+# iOS Build Files
+*.ipa
+*.xcarchive
+*.dSYM
+*.app
+*.framework
+*.bundle
+*.car
+*.metallib
+*.mom
+*.momd
 
 # Metro
 .metro-health-check*

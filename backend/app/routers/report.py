@@ -16,6 +16,57 @@ from sqlalchemy import func
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
+# 중복 신고 확인
+@router.get("/check-duplicate")
+def check_duplicate_report(
+    target_type: str,
+    target_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """사용자가 특정 대상을 이미 신고했는지 확인합니다."""
+    
+    existing_report = db.query(Report).filter(
+        Report.reporter_id == current_user.id,
+        Report.target_type == target_type,
+        Report.target_id == target_id
+    ).first()
+    
+    return {
+        "is_duplicate": existing_report is not None,
+        "existing_report_id": existing_report.id if existing_report else None
+    }
+
+# 내 신고 목록 조회
+@router.get("/my", response_model=List[ReportResponse])
+def get_my_reports(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """현재 사용자의 신고 목록을 조회합니다."""
+    
+    reports = db.query(Report).filter(
+        Report.reporter_id == current_user.id
+    ).order_by(Report.created_at.desc()).all()
+    
+    return [
+        ReportResponse(
+            id=report.id,
+            reporter_id=report.reporter_id,
+            target_type=report.target_type,
+            target_id=report.target_id,
+            report_type=report.report_type,
+            reason=report.reason,
+            evidence=report.evidence,
+            status=report.status,
+            admin_response=report.admin_response,
+            admin_id=report.admin_id,
+            created_at=report.created_at,
+            reviewed_at=report.reviewed_at
+        )
+        for report in reports
+    ]
+
 # 사용자 신고 생성
 @router.post("/", response_model=ReportResponse)
 def create_report(
@@ -24,7 +75,6 @@ def create_report(
     db: Session = Depends(get_db)
 ):
     """사용자가 게시글, 댓글, 사용자를 신고합니다."""
-    
     # 신고 대상 존재 확인
     if report.target_type == "post":
         target = db.query(Post).filter(Post.id == report.target_id).first()

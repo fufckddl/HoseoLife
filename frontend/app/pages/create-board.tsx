@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, SafeAreaView, ScrollView } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, SafeAreaView, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,109 @@ export default function CreateBoardScreen() {
   const [boardName, setBoardName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // 🆕 게시판 이름 중복 검증 관련 상태
+  const [nameValidation, setNameValidation] = useState<{
+    status: 'idle' | 'checking' | 'available' | 'unavailable';
+    message: string;
+  }>({ status: 'idle', message: '' });
+  const [nameCheckTimeout, setNameCheckTimeout] = useState<number | null>(null);
+  const [existingBoards, setExistingBoards] = useState<string[]>([]); // 기존 게시판 이름 목록
+
+  // 🆕 기존 게시판 목록 가져오기
+  const fetchExistingBoards = async () => {
+    try {
+      const response = await fetch('https://hoseolife.kro.kr/boards');
+      if (response.ok) {
+        const boards = await response.json();
+        const boardNames = boards.map((board: any) => board.name.toLowerCase());
+        setExistingBoards(boardNames);
+        console.log('✅ 기존 게시판 목록 로드 완료:', boardNames);
+      }
+    } catch (error) {
+      console.error('기존 게시판 목록 로드 실패:', error);
+    }
+  };
+
+  // 컴포넌트 마운트 시 기존 게시판 목록 로드
+  useEffect(() => {
+    fetchExistingBoards();
+  }, []);
+
+  // 🆕 게시판 이름 중복 검증 함수 (클라이언트 사이드)
+  const checkBoardNameAvailability = (name: string) => {
+    if (!name.trim()) {
+      setNameValidation({ status: 'idle', message: '' });
+      return;
+    }
+
+    setNameValidation({ status: 'checking', message: '이름 확인 중...' });
+    
+    // 100ms 후 검증 (즉시 응답)
+    setTimeout(() => {
+      const trimmedName = name.trim();
+      const lowerCaseName = trimmedName.toLowerCase();
+      
+      // 기존 게시판 이름과 중복 확인
+      const isDuplicate = existingBoards.includes(lowerCaseName);
+      
+      // 이름 길이 검증 (2-20자)
+      if (trimmedName.length < 2) {
+        setNameValidation({
+          status: 'unavailable',
+          message: '게시판 이름은 2자 이상이어야 합니다.'
+        });
+        return;
+      }
+      
+      if (trimmedName.length > 20) {
+        setNameValidation({
+          status: 'unavailable',
+          message: '게시판 이름은 20자 이하여야 합니다.'
+        });
+        return;
+      }
+      
+      // 중복 검증
+      if (isDuplicate) {
+        setNameValidation({
+          status: 'unavailable',
+          message: '이미 사용 중인 게시판 이름입니다.'
+        });
+      } else {
+        setNameValidation({
+          status: 'available',
+          message: '사용 가능한 게시판 이름입니다.'
+        });
+      }
+    }, 100);
+  };
+
+  // 🆕 게시판 이름 변경 시 디바운싱 처리
+  const handleBoardNameChange = (text: string) => {
+    setBoardName(text);
+    
+    // 이전 타이머 클리어
+    if (nameCheckTimeout) {
+      clearTimeout(nameCheckTimeout);
+    }
+    
+    // 새로운 타이머 설정 (300ms 후 검증)
+    const timeout = setTimeout(() => {
+      checkBoardNameAvailability(text);
+    }, 300);
+    
+    setNameCheckTimeout(timeout);
+  };
+
+  // 🆕 컴포넌트 언마운트 시 타이머 정리
+  useEffect(() => {
+    return () => {
+      if (nameCheckTimeout) {
+        clearTimeout(nameCheckTimeout);
+      }
+    };
+  }, [nameCheckTimeout]);
 
   const handleCreateBoard = async () => {
     if (!boardName.trim()) {
@@ -24,6 +127,17 @@ export default function CreateBoardScreen() {
       return;
     }
 
+    // 🆕 게시판 이름 중복 검증 확인
+    if (nameValidation.status === 'unavailable') {
+      Alert.alert('오류', '이미 사용 중인 게시판 이름입니다. 다른 이름을 입력해주세요.');
+      return;
+    }
+
+    if (nameValidation.status === 'checking') {
+      Alert.alert('알림', '게시판 이름 확인 중입니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+
     try {
       setLoading(true);
       
@@ -33,7 +147,7 @@ export default function CreateBoardScreen() {
         return;
       }
 
-      const response = await fetch('https://camsaw.kro.kr/boards/create', {
+      const response = await fetch('https://hoseolife.kro.kr/boards/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -95,14 +209,54 @@ export default function CreateBoardScreen() {
           <View style={styles.formContainer}>
             <View style={styles.inputGroup}>
               <Text style={styles.label}>게시판 이름 *</Text>
-              <TextInput
-                style={styles.input}
-                value={boardName}
-                onChangeText={setBoardName}
-                placeholder="게시판 이름을 입력하세요"
-                maxLength={20}
-              />
-              <Text style={styles.characterCount}>{boardName.length}/20</Text>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    nameValidation.status === 'available' && styles.inputValid,
+                    nameValidation.status === 'unavailable' && styles.inputInvalid
+                  ]}
+                  value={boardName}
+                  onChangeText={handleBoardNameChange}
+                  placeholder="게시판 이름을 입력하세요"
+                  maxLength={20}
+                />
+                {nameValidation.status === 'checking' && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color="#007AFF" 
+                    style={styles.validationSpinner}
+                  />
+                )}
+                {nameValidation.status === 'available' && (
+                  <Ionicons 
+                    name="checkmark-circle" 
+                    size={20} 
+                    color="#28a745" 
+                    style={styles.validationIcon}
+                  />
+                )}
+                {nameValidation.status === 'unavailable' && (
+                  <Ionicons 
+                    name="close-circle" 
+                    size={20} 
+                    color="#dc3545" 
+                    style={styles.validationIcon}
+                  />
+                )}
+              </View>
+              <View style={styles.inputFooter}>
+                <Text style={styles.characterCount}>{boardName.length}/20</Text>
+              </View>
+              {nameValidation.message && (
+                <Text style={[
+                  styles.validationMessage,
+                  nameValidation.status === 'available' && styles.validationMessageSuccess,
+                  nameValidation.status === 'unavailable' && styles.validationMessageError
+                ]}>
+                  {nameValidation.message}
+                </Text>
+              )}
             </View>
 
             <View style={styles.inputGroup}>
@@ -121,9 +275,12 @@ export default function CreateBoardScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.createButton, loading && styles.createButtonDisabled]}
+            style={[
+              styles.createButton, 
+              (loading || nameValidation.status === 'unavailable' || nameValidation.status === 'checking') && styles.createButtonDisabled
+            ]}
             onPress={handleCreateBoard}
-            disabled={loading}
+            disabled={loading || nameValidation.status === 'unavailable' || nameValidation.status === 'checking'}
           >
             <Text style={styles.createButtonText}>
               {loading ? '생성 중...' : '게시판 생성 요청'}
@@ -212,13 +369,41 @@ const styles = StyleSheet.create({
     color: '#212529',
     marginBottom: 8,
   },
+  inputContainer: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   input: {
+    flex: 1,
     borderWidth: 1,
     borderColor: '#dee2e6',
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
     backgroundColor: '#ffffff',
+    paddingRight: 40, // 아이콘 공간 확보
+  },
+  inputValid: {
+    borderColor: '#28a745',
+    backgroundColor: '#f8fff9',
+  },
+  inputInvalid: {
+    borderColor: '#dc3545',
+    backgroundColor: '#fff8f8',
+  },
+  validationSpinner: {
+    position: 'absolute',
+    right: 12,
+  },
+  validationIcon: {
+    position: 'absolute',
+    right: 12,
+  },
+  inputFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 4,
   },
   textArea: {
     height: 100,
@@ -251,5 +436,17 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  // 🆕 검증 메시지 스타일들
+  validationMessage: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  validationMessageSuccess: {
+    color: '#28a745',
+  },
+  validationMessageError: {
+    color: '#dc3545',
   },
 });

@@ -12,12 +12,15 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { postService, PostListResponse } from '../services/postService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 
 export default function LocationBoardScreen() {
   const router = useRouter();
   const [posts, setPosts] = React.useState<PostListResponse[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
+  const insets = useSafeAreaInsets();
 
   const fetchPosts = async () => {
     try {
@@ -89,36 +92,37 @@ export default function LocationBoardScreen() {
       activeOpacity={0.7}
     >
       <View style={styles.postHeader}>
-        <View style={styles.authorContainer}>
-          <Text style={styles.authorName}>{item.author_nickname}</Text>
+        <View style={styles.authorInfo}>
+          <Text style={styles.authorName}>{getDisplayNickname(item.author_nickname)}</Text>
+          <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
         </View>
-        <Text style={styles.timeText}>{formatTimeAgo(item.created_at)}</Text>
       </View>
-
-      <View style={styles.postContent}>
-        <Text style={styles.postTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        
+      
+      <Text style={styles.postTitle} numberOfLines={2}>
+        {item.title}
+      </Text>
+      
+      {/* 위치 정보 표시 */}
+      {item.building_name && (
         <View style={styles.locationContainer}>
-          <Ionicons name="location" size={14} color="#000000" style={{ marginRight: 4 }} />
+          <Ionicons name="location-outline" size={16} color="#6c757d" />
           <Text style={styles.locationText}>{item.building_name}</Text>
         </View>
-      </View>
-
+      )}
+      
       <View style={styles.postFooter}>
-        <View style={styles.statsContainer}>
+        <View style={styles.postStats}>
           <View style={styles.statItem}>
-            <Ionicons name="eye" size={14} color="#000000" style={{ marginRight: 4 }} />
+            <Ionicons name="eye-outline" size={16} color="#6c757d" />
             <Text style={styles.statText}>{item.view_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="heart" size={14} color="#000000" style={{ marginRight: 4 }} />
-            <Text style={styles.statText}>{item.heart_count}</Text>
+            <Ionicons name="chatbubble-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.comment_count}</Text>
           </View>
           <View style={styles.statItem}>
-            <Ionicons name="chatbubble" size={14} color="#000000" style={{ marginRight: 4 }} />
-            <Text style={styles.statText}>{item.comment_count}</Text>
+            <Ionicons name="heart-outline" size={16} color="#6c757d" />
+            <Text style={styles.statText}>{item.heart_count}</Text>
           </View>
         </View>
       </View>
@@ -127,92 +131,92 @@ export default function LocationBoardScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#000000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>위치 게시판</Text>
-          <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-              <Ionicons name="search" size={24} color="#000000" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.createButton} onPress={handleCreatePost}>
-              <Ionicons name="add" size={24} color="#000000" />
-            </TouchableOpacity>
-          </View>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000000" />
-          <Text style={styles.loadingText}>위치 게시글을 불러오는 중...</Text>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>게시글을 불러오는 중...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* 헤더 */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
           <Ionicons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
+        
         <Text style={styles.headerTitle}>위치 게시판</Text>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+        
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.searchButton}
+            onPress={handleSearch}
+          >
             <Ionicons name="search" size={24} color="#000000" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.createButton} onPress={handleCreatePost}>
+          
+          <TouchableOpacity
+            style={styles.createButton}
+            onPress={handleCreatePost}
+          >
             <Ionicons name="add" size={24} color="#000000" />
           </TouchableOpacity>
         </View>
       </View>
 
-      {posts.length === 0 ? (
+      {/* 게시글 목록 */}
+      <FlatList
+        data={posts}
+        renderItem={renderPostItem}
+        keyExtractor={(item) => item.id.toString()}
+        style={styles.postList}
+        contentContainerStyle={styles.postListContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        showsVerticalScrollIndicator={false}
+      />
+
+      {/* 빈 상태 */}
+      {!loading && posts.length === 0 && (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyTitle}>위치 게시글이 없습니다</Text>
-          <Text style={styles.emptySubtitle}>
-            위치 기반 게시글을 작성해보세요!
-          </Text>
-          <TouchableOpacity style={styles.emptyCreateButton} onPress={handleCreatePost}>
+          <Ionicons name="document-text-outline" size={64} color="#adb5bd" />
+          <Text style={styles.emptyTitle}>아직 게시글이 없습니다</Text>
+          <Text style={styles.emptySubtitle}>첫 번째 게시글을 작성해보세요!</Text>
+          <TouchableOpacity
+            style={styles.emptyCreateButton}
+            onPress={handleCreatePost}
+          >
             <Text style={styles.emptyCreateButtonText}>게시글 작성하기</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={posts}
-          renderItem={renderPostItem}
-          keyExtractor={(item) => item.id.toString()}
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={['#000000']}
-              tintColor="#000000"
-            />
-          }
-          showsVerticalScrollIndicator={false}
-        />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f8f9fa',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
+    backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: '#e9ecef',
   },
   backButton: {
     padding: 8,
@@ -220,71 +224,27 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000000',
-    fontFamily: 'GmarketSans',
+    color: '#212529',
   },
-  headerRight: {
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
   },
   searchButton: {
     padding: 8,
+    marginRight: 8,
   },
   createButton: {
     padding: 8,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-    fontFamily: 'GmarketSans',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000000',
-    marginBottom: 8,
-    fontFamily: 'GmarketSans',
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 24,
-    fontFamily: 'GmarketSans',
-  },
-  emptyCreateButton: {
-    backgroundColor: '#000000',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-  },
-  emptyCreateButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'GmarketSans',
-  },
-  list: {
+  postList: {
     flex: 1,
   },
-  listContent: {
+  postListContent: {
     padding: 16,
   },
   postItem: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -301,59 +261,90 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  authorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  authorInfo: {
+    flex: 1,
   },
   authorName: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#000000',
-    fontFamily: 'GmarketSans',
+    color: '#495057',
   },
-  timeText: {
+  postTime: {
     fontSize: 12,
-    color: '#999',
-    fontFamily: 'GmarketSans',
-  },
-  postContent: {
-    marginBottom: 12,
+    color: '#6c757d',
+    marginTop: 2,
   },
   postTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000000',
+    color: '#212529',
     marginBottom: 8,
     lineHeight: 22,
-    fontFamily: 'GmarketSans',
   },
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
   },
   locationText: {
-    fontSize: 12,
-    color: '#000000',
-    fontFamily: 'GmarketSans',
+    fontSize: 14,
+    color: '#6c757d',
+    marginLeft: 4,
   },
   postFooter: {
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    paddingTop: 12,
-  },
-  statsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  postStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 16,
   },
   statText: {
     fontSize: 12,
-    color: '#000000',
-    fontFamily: 'GmarketSans',
+    color: '#6c757d',
+    marginLeft: 4,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6c757d',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#495057',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  emptyCreateButton: {
+    backgroundColor: '#000000',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  emptyCreateButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

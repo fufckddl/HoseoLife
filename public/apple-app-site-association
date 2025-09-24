@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "3VKUTX6NA5.com.dlckdfuf.camsaw",
+        "paths": ["/posts/*", "/post/*"]
+      }
+    ]
+  }
+}

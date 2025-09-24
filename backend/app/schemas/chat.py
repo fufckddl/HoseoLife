@@ -3,15 +3,15 @@ from typing import List, Optional
 from datetime import datetime
 
 # 채팅방 스키마
-class ChatRoomBase(BaseModel):
+class RoomBase(BaseModel):
     name: Optional[str] = None
     type: str = "dm"  # "dm" 또는 "group"
     members: List[int] = []
 
-class ChatRoomCreate(ChatRoomBase):
+class RoomCreate(RoomBase):
     pass
 
-class ChatRoomResponse(ChatRoomBase):
+class RoomResponse(RoomBase):
     id: int
     created_by: int
     created_at: datetime
@@ -37,6 +37,8 @@ class ChatMessageResponse(BaseModel):
     content: str  # DB 필드명 유지
     client_msg_id: Optional[str] = None  # DB 필드명 유지
     sender_id: int
+    sender_nickname: Optional[str] = None  # 🆕 발신자 닉네임
+    sender_profile_image_url: Optional[str] = None  # 🆕 발신자 프로필 이미지
     sent_at: datetime
     is_deleted: bool
     
@@ -59,3 +61,10 @@ class WSMessage(BaseModel):
 # 푸시 알림 등록 스키마
 class PushTokenRegister(BaseModel):
     expo_push_token: str
+
+# 사용자 채팅방 나간 시간 스키마
+class UserLeaveTimeResponse(BaseModel):
+    leave_time: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True

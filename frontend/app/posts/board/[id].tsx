@@ -15,13 +15,18 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { postService, PostListResponse } from '../../services/postService';
+import { boardService, BoardNotice } from '../../services/boardService'; // 🆕 게시판 서비스 추가
+import { chatService } from '../../services/chatService'; // 🆕 채팅 서비스 추가
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getDisplayNickname, isDeactivatedUser } from '../../utils/userUtils'; // 🆕 유틸리티 함수 import
+import { useAuth } from '../../contexts/AuthContext'; // 🆕 인증 컨텍스트 추가
 import { Ionicons } from '@expo/vector-icons';
 
 interface Board {
   id: number;
   name: string;
   description: string;
+  creator_id?: number; // 🆕 게시판 생성자 ID
 }
 
 
@@ -29,17 +34,21 @@ interface Board {
 export default function BoardPostsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
+  const { user } = useAuth(); // 🆕 현재 사용자 정보
   const insets = useSafeAreaInsets();
   const [board, setBoard] = useState<Board | null>(null);
+  const [notices, setNotices] = useState<BoardNotice[]>([]); // 🆕 공지사항 목록
   const [posts, setPosts] = useState<PostListResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false); // 🆕 관리자 권한 확인
 
   useEffect(() => {
     if (id) {
       fetchBoardInfo();
+      fetchNotices(); // 🆕 공지사항 로드
       fetchPosts();
     }
   }, [id]);
@@ -56,13 +65,30 @@ export default function BoardPostsScreen() {
 
   const fetchBoardInfo = async () => {
     try {
-      const response = await fetch(`https://camsaw.kro.kr/boards/${id}`);
+      const response = await fetch(`https://hoseolife.kro.kr/boards/${id}`);
       if (response.ok) {
         const boardData = await response.json();
         setBoard(boardData);
+        
+        // 🆕 관리자 권한 확인 (게시판 생성자이거나 전체 관리자)
+        if (user && boardData.creator_id) {
+          setIsAdmin(boardData.creator_id === user.id || user.is_admin);
+        }
       }
     } catch (error) {
       console.error('게시판 정보 로드 실패:', error);
+    }
+  };
+
+  // 🆕 공지사항 목록 로드
+  const fetchNotices = async () => {
+    try {
+      const noticesData = await boardService.getBoardNotices(parseInt(id as string));
+      setNotices(noticesData);
+      console.log(`✅ 게시판 ${id} 공지사항 로드 완료: ${noticesData.length}개`);
+    } catch (error) {
+      console.error('게시판 공지사항 로드 실패:', error);
+      setNotices([]);
     }
   };
 
@@ -107,6 +133,7 @@ export default function BoardPostsScreen() {
   };
 
   const onRefresh = () => {
+    fetchNotices(); // 🆕 공지사항도 새로고침
     fetchPosts(true);
   };
 
@@ -118,6 +145,98 @@ export default function BoardPostsScreen() {
 
   const handleCreatePost = () => {
     router.push(`/posts/board/${id}/create` as any);
+  };
+
+  // 🆕 공지사항 작성
+  const handleCreateNotice = () => {
+    router.push(`/pages/create-board-notice?boardId=${id}` as any);
+  };
+
+  // 공지사항 클릭 핸들러 - 게시글 상세페이지로 이동
+  const handleNoticePress = (notice: BoardNotice) => {
+    // 공지사항을 게시글 형태로 변환하여 상세페이지로 전달
+    const noticeAsPost = {
+      id: `notice-${notice.id}`, // 공지사항임을 구분하기 위해 prefix 추가
+      title: `📢 [공지] ${notice.title}`,
+      content: notice.content,
+      author_nickname: notice.author_nickname,
+      author_id: notice.author_id, // 🆕 작성자 ID 추가
+      author_profile_image_url: notice.author_profile_image_url || null, // 🆕 프로필 이미지 URL 추가
+      created_at: notice.created_at,
+      updated_at: notice.updated_at,
+      view_count: 0,
+      heart_count: 0,
+      comment_count: 0,
+      board_id: parseInt(id as string),
+      board_name: board?.name || '',
+      is_notice: true, // 공지사항 표시 플래그
+      notice_id: notice.id, // 원본 공지사항 ID
+      is_pinned: notice.is_pinned
+    };
+
+    // 공지사항 데이터를 쿼리 파라미터로 전달
+    router.push({
+      pathname: '/pages/post-detail',
+      params: {
+        id: `notice-${notice.id}`,
+        noticeData: JSON.stringify(noticeAsPost)
+      }
+    } as any);
+  };
+
+  // 🆕 게시글 삭제 (관리자 권한)
+  const handleDeletePost = (postId: number) => {
+    Alert.alert(
+      '게시글 삭제',
+      '정말로 이 게시글을 삭제하시겠습니까?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await postService.deletePost(postId);
+              Alert.alert('성공', '게시글이 삭제되었습니다.');
+              fetchPosts(true); // 목록 새로고침
+            } catch (error) {
+              console.error('게시글 삭제 실패:', error);
+              Alert.alert('오류', '게시글 삭제에 실패했습니다.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // 작성자와 채팅 시작 (자신과의 채팅 금지)
+  const handleAuthorChat = async (authorId: number, authorNickname: string) => {
+    if (!user || authorId === user.id) {
+      return; // 자신과는 채팅할 수 없음
+    }
+
+    Alert.alert(
+      '1:1 채팅 시작',
+      `${authorNickname}님과 1:1 채팅하시겠습니까?`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '확인',
+          onPress: async () => {
+            try {
+              // 1:1 채팅방 찾기 또는 생성
+              const chatRoom = await chatService.findOrCreateDirectChat(authorId);
+              
+              // 채팅방으로 이동
+              router.push(`/pages/chat-room?id=${chatRoom.id}&type=dm`);
+            } catch (error) {
+              console.error('채팅방 생성 실패:', error);
+              Alert.alert('오류', '채팅방을 생성하는데 실패했습니다.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handlePostPress = (postId: number) => {
@@ -149,9 +268,55 @@ export default function BoardPostsScreen() {
     >
       <View style={styles.postHeader}>
         <View style={styles.authorInfo}>
-          <Text style={styles.authorName}>{item.author_nickname}</Text>
-          <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
+          <View style={styles.authorContainer}>
+            {!isDeactivatedUser(item.author_nickname) ? (
+              item.author_profile_image_url ? (
+                <Image 
+                  source={{ 
+                    uri: item.author_profile_image_url,
+                    cache: 'reload'
+                  }} 
+                  style={styles.authorImage} 
+                />
+              ) : (
+                <Image 
+                  source={require('../../../assets/images/camsaw_human.png')} 
+                  style={styles.authorImage} 
+                />
+              )
+            ) : null}
+            <View style={styles.authorTextContainer}>
+              <TouchableOpacity 
+                onPress={() => {
+                  if (!isDeactivatedUser(item.author_nickname) && item.author_id !== user?.id) {
+                    handleAuthorChat(item.author_id, item.author_nickname);
+                  }
+                }}
+                disabled={item.author_id === user?.id || isDeactivatedUser(item.author_nickname)}
+              >
+                <Text style={[
+                  styles.authorName,
+                  (item.author_id === user?.id || isDeactivatedUser(item.author_nickname)) && styles.authorNameDisabled
+                ]}>
+                  {getDisplayNickname(item.author_nickname)}
+                </Text>
+              </TouchableOpacity>
+              <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
+            </View>
+          </View>
         </View>
+        {/* 🆕 관리자인 경우 삭제 버튼 표시 */}
+        {isAdmin && (
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={(e) => {
+              e.stopPropagation(); // 게시글 클릭 이벤트 방지
+              handleDeletePost(item.id);
+            }}
+          >
+            <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+          </TouchableOpacity>
+        )}
       </View>
       
       <Text style={styles.postTitle} numberOfLines={2}>
@@ -218,6 +383,16 @@ export default function BoardPostsScreen() {
             <Ionicons name="search" size={24} color="#000000" />
           </TouchableOpacity>
           
+          {/* 🆕 관리자인 경우 공지사항 작성 버튼 */}
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.noticeButton}
+              onPress={handleCreateNotice}
+            >
+              <Ionicons name="megaphone" size={20} color="#FF6B6B" />
+            </TouchableOpacity>
+          )}
+          
           <TouchableOpacity
             style={styles.createButton}
             onPress={handleCreatePost}
@@ -239,6 +414,73 @@ export default function BoardPostsScreen() {
         }
         onEndReached={loadMore}
         onEndReachedThreshold={0.1}
+        ListHeaderComponent={
+          // 🆕 공지사항 상단 고정 표시
+          notices.length > 0 ? (
+            <View style={styles.noticesSection}>
+              <View style={styles.noticesHeader}>
+                <Ionicons name="megaphone" size={20} color="#FF6B6B" />
+                <Text style={styles.noticesTitle}>공지사항</Text>
+              </View>
+              {notices.map((notice) => (
+                <TouchableOpacity
+                  key={notice.id}
+                  style={styles.noticeCard}
+                  onPress={() => handleNoticePress(notice)}
+                >
+                  <View style={styles.noticeHeader}>
+                    <View style={styles.noticeIconContainer}>
+                      {notice.is_pinned && (
+                        <Ionicons name="pin" size={12} color="#FF6B6B" style={styles.pinIcon} />
+                      )}
+                    </View>
+                    <Text style={styles.noticeTitle} numberOfLines={1}>
+                      {notice.title}
+                    </Text>
+                  </View>
+                  <View style={styles.noticeFooter}>
+                    <View style={styles.noticeAuthorContainer}>
+                      {!isDeactivatedUser(notice.author_nickname) ? (
+                        notice.author_profile_image_url ? (
+                          <Image 
+                            source={{ 
+                              uri: notice.author_profile_image_url,
+                              cache: 'reload'
+                            }} 
+                            style={styles.noticeAuthorImage} 
+                          />
+                        ) : (
+                          <Image 
+                            source={require('../../../assets/images/camsaw_human.png')} 
+                            style={styles.noticeAuthorImage} 
+                          />
+                        )
+                      ) : null}
+                      <TouchableOpacity 
+                        onPress={() => {
+                          if (!isDeactivatedUser(notice.author_nickname) && notice.author_nickname !== user?.nickname) {
+                            handleAuthorChat((notice as any).author_id || 0, notice.author_nickname);
+                          }
+                        }}
+                        disabled={notice.author_nickname === user?.nickname || isDeactivatedUser(notice.author_nickname)}
+                      >
+                        <Text style={[
+                          styles.noticeAuthor,
+                          (notice.author_nickname === user?.nickname || isDeactivatedUser(notice.author_nickname)) && styles.noticeAuthorDisabled
+                        ]}>
+                          {getDisplayNickname(notice.author_nickname)}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.noticeDate}>
+                      {new Date(notice.created_at).toLocaleDateString('ko-KR')}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null
+        }
         ListFooterComponent={renderFooter}
         showsVerticalScrollIndicator={false}
       />
@@ -299,6 +541,14 @@ const styles = StyleSheet.create({
   createButton: {
     padding: 8,
   },
+  noticeButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  deleteButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
   postList: {
     flex: 1,
   },
@@ -328,10 +578,28 @@ const styles = StyleSheet.create({
   authorInfo: {
     flex: 1,
   },
+  authorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  authorImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+    resizeMode: 'cover',
+  },
+  authorTextContainer: {
+    flex: 1,
+  },
   authorName: {
     fontSize: 14,
     fontWeight: '500',
     color: '#495057',
+  },
+  authorNameDisabled: {
+    color: '#999999',
+    opacity: 0.7,
   },
   postTime: {
     fontSize: 12,
@@ -406,5 +674,98 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // 🆕 공지사항 관련 스타일들
+  noticesSection: {
+    backgroundColor: '#FFF9E6',
+    borderBottomWidth: 2,
+    borderBottomColor: '#FFE500',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  noticesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  noticesTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FF6B6B',
+    fontFamily: 'GmarketSans',
+  },
+  noticeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF6B6B',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  noticeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  noticeIconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  pinIcon: {
+    marginLeft: 4,
+  },
+  noticeTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+    flex: 1,
+    fontFamily: 'GmarketSans',
+  },
+  noticeContent: {
+    fontSize: 14,
+    color: '#666666',
+    lineHeight: 20,
+    marginBottom: 8,
+    fontFamily: 'GmarketSans',
+  },
+  noticeFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  noticeAuthorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  noticeAuthorImage: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 6,
+    resizeMode: 'cover',
+  },
+  noticeAuthor: {
+    fontSize: 12,
+    color: '#333333',
+    fontFamily: 'GmarketSans',
+    fontWeight: '500',
+  },
+  noticeAuthorDisabled: {
+    color: '#999999',
+    opacity: 0.7,
+  },
+  noticeDate: {
+    fontSize: 12,
+    color: '#999999',
+    fontFamily: 'GmarketSans',
   },
 });

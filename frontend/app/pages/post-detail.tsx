@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { FullScreenImageViewer } from '../components/FullScreenImageViewer';
 import ReportModal from '../components/ReportModal';
 import { Ionicons } from '@expo/vector-icons';
+import { getDisplayNickname, isDeactivatedUser } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface PostDetail extends PostResponse {
@@ -116,13 +117,29 @@ export default function PostDetailScreen() {
         setLoading(true);
       }
       
-      console.log('postService.getPost 호출 시작');
-      const postData = await postService.getPost(parseInt(postId));
-      console.log('postService.getPost 응답:', postData);
-      
-      setPost(postData);
-      setHeartCount(postData.heart_count);
-      console.log('상태 업데이트 완료');
+      // 공지사항인지 확인 (notice- prefix로 시작하는지 체크)
+      if (postId.startsWith('notice-')) {
+        console.log('공지사항 데이터 처리');
+        const noticeDataStr = params.noticeData as string;
+        if (noticeDataStr) {
+          const noticeData = JSON.parse(noticeDataStr);
+          console.log('공지사항 데이터:', noticeData);
+          setPost(noticeData);
+          setHeartCount(noticeData.heart_count || 0);
+          console.log('공지사항 상태 업데이트 완료');
+        } else {
+          throw new Error('공지사항 데이터가 없습니다.');
+        }
+      } else {
+        console.log('일반 게시글 데이터 처리');
+        console.log('postService.getPost 호출 시작');
+        const postData = await postService.getPost(parseInt(postId));
+        console.log('postService.getPost 응답:', postData);
+        
+        setPost(postData);
+        setHeartCount(postData.heart_count);
+        console.log('상태 업데이트 완료');
+      }
     } catch (error) {
       console.error('게시글 상세 조회 실패:', error);
       if (showLoading) {
@@ -137,6 +154,13 @@ export default function PostDetailScreen() {
 
   const fetchComments = async () => {
     try {
+      // 공지사항인 경우 댓글 조회 건너뛰기
+      if (postId.startsWith('notice-')) {
+        console.log('공지사항은 댓글 조회 건너뜀');
+        setComments([]);
+        return;
+      }
+      
       const response = await postService.getComments(parseInt(postId));
       setComments(response);
     } catch (error) {
@@ -175,6 +199,13 @@ export default function PostDetailScreen() {
 
   const fetchHeartStatus = async () => {
     try {
+      // 공지사항인 경우 하트 상태 조회 건너뛰기
+      if (postId.startsWith('notice-')) {
+        console.log('공지사항은 하트 상태 조회 건너뜀');
+        setIsHearted(false);
+        return;
+      }
+      
       const heartStatus = await postService.getHeartStatus(parseInt(postId));
       setIsHearted(heartStatus.is_hearted);
       setHeartCount(heartStatus.heart_count);
@@ -185,6 +216,14 @@ export default function PostDetailScreen() {
 
   const fetchScrapStatus = async () => {
     try {
+      // 공지사항인 경우 스크랩 상태 조회 건너뛰기
+      if (postId.startsWith('notice-')) {
+        console.log('공지사항은 스크랩 상태 조회 건너뜀');
+        setIsScrapped(false);
+        setScrapCount(0);
+        return;
+      }
+      
       const scrapStatus = await postService.getScrapStatus(parseInt(postId));
       setIsScrapped(scrapStatus.is_scrapped);
       setScrapCount(scrapStatus.scrap_count);
@@ -503,7 +542,7 @@ export default function PostDetailScreen() {
       <View key={comment.id} style={[styles.commentItem, isReply && styles.replyComment]}>
         <View style={styles.commentHeader}>
           <View style={styles.commentAuthorContainer}>
-            {comment.author_nickname && comment.author_nickname !== '알 수 없음' ? (
+              {!isDeactivatedUser(comment.author_nickname) ? (
               comment.author_profile_image_url ? (
                 <Image 
                   source={{ 
@@ -521,17 +560,17 @@ export default function PostDetailScreen() {
             ) : null}
             <TouchableOpacity 
               onPress={() => {
-                if (comment.author_nickname && comment.author_nickname !== '알 수 없음') {
-                  handleAuthorChat(comment.author_id, comment.author_nickname);
+                if (!isDeactivatedUser(comment.author_nickname)) {
+                  handleAuthorChat(comment.author_id, comment.author_nickname!);
                 }
               }}
-              disabled={comment.author_id === currentUserId || !comment.author_nickname || comment.author_nickname === '알 수 없음'}
+              disabled={comment.author_id === currentUserId || isDeactivatedUser(comment.author_nickname)}
             >
               <Text style={[
                 styles.commentAuthor,
-                (comment.author_id === currentUserId || !comment.author_nickname || comment.author_nickname === '알 수 없음') && styles.commentAuthorDisabled
+                (comment.author_id === currentUserId || isDeactivatedUser(comment.author_nickname)) && styles.commentAuthorDisabled
               ]}>
-                {comment.author_nickname || '알 수 없음'}
+                {getDisplayNickname(comment.author_nickname)}
               </Text>
             </TouchableOpacity>
           </View>
@@ -701,6 +740,9 @@ export default function PostDetailScreen() {
 
   // 뉴스/공지 카테고리인지 확인
   const isNewsOrNotice = post.category === '뉴스' || post.category === '공지';
+  
+  // 게시판 공지사항인지 확인
+  const isBoardNotice = postId.startsWith('notice-') || (post as any).is_notice;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
@@ -712,24 +754,12 @@ export default function PostDetailScreen() {
         }}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        {/* 위치 카테고리인 경우에만 위치 정보 표시 */}
-        {post.category === '위치' && (
-        <View style={styles.locationInfo}>
-          <Ionicons name="location" size={16} color="#333" />
-          <Text style={styles.locationText}>
-            {post.building_name} 근처 - {formatTimeAgo(post.created_at)}
+        {/* 게시판 이름 표시 */}
+        <View style={styles.headerCenter}>
+          <Text style={styles.boardNameText}>
+            {post.category || '게시판'}
           </Text>
         </View>
-        )}
-
-        {/* 뉴스/공지의 경우 시간만 표시 */}
-        {isNewsOrNotice && (
-          <View style={styles.locationInfo}>
-            <Text style={styles.locationText}>
-              {formatTimeAgo(post.created_at)}
-            </Text>
-          </View>
-        )}
         <View style={styles.headerRight}>
           <TouchableOpacity 
             style={styles.menuButton} 
@@ -746,26 +776,42 @@ export default function PostDetailScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* 카테고리 및 작성자 태그 */}
+          {/* 작성자 태그 */}
           <View style={styles.tagContainer}>
             <View style={styles.tagLeftSection}>
-              <View style={[styles.categoryTag, { backgroundColor: getCategoryColor(post.category) }]}>
-                <Text style={styles.categoryText}>{post.category}</Text>
-              </View>
+              {/* 🆕 작성자 프로필 이미지 */}
+              {!isDeactivatedUser(post.author_nickname) && (
+                post.author_profile_image_url ? (
+                  <Image 
+                    source={{ 
+                      uri: post.author_profile_image_url,
+                      cache: 'reload'
+                    }} 
+                    style={styles.authorProfileImageClean} 
+                  />
+                ) : (
+                  <Image 
+                    source={require('../../assets/images/camsaw_human.png')} 
+                    style={styles.authorProfileImageClean} 
+                  />
+                )
+              )}
+              
+              {/* 🆕 작성자 닉네임 (회색 원형) */}
               <TouchableOpacity 
                 style={styles.authorTag}
                 onPress={() => {
-                  if (post.author_nickname && post.author_nickname !== '알 수 없음') {
-                    handleAuthorChat(post.author_id, post.author_nickname);
+                  if (!isDeactivatedUser(post.author_nickname)) {
+                    handleAuthorChat(post.author_id, post.author_nickname!);
                   }
                 }}
-                disabled={post.author_id === currentUserId || !post.author_nickname || post.author_nickname === '알 수 없음'}
+                disabled={post.author_id === currentUserId || isDeactivatedUser(post.author_nickname)}
               >
                 <Text style={[
                   styles.authorText,
-                  (post.author_id === currentUserId || !post.author_nickname || post.author_nickname === '알 수 없음') && styles.authorTextDisabled
+                  (post.author_id === currentUserId || isDeactivatedUser(post.author_nickname)) && styles.authorTextDisabled
                 ]}>
-                  {post.author_nickname || '알 수 없음'}
+                  {getDisplayNickname(post.author_nickname)}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -809,7 +855,8 @@ export default function PostDetailScreen() {
             </View>
           )}
 
-          {/* 참여도 지표 */}
+          {/* 참여도 지표 - 공지사항이 아닌 경우만 표시 */}
+          {!isBoardNotice && (
           <View style={styles.engagementContainer}>
             <TouchableOpacity 
               onPress={handleHeartToggle} 
@@ -848,8 +895,10 @@ export default function PostDetailScreen() {
               <Text style={styles.engagementText}>{post.view_count}</Text>
             </View>
           </View>
+          )}
 
-          {/* 댓글 섹션 */}
+          {/* 댓글 섹션 - 공지사항이 아닌 경우만 표시 */}
+          {!isBoardNotice && (
           <View style={styles.commentSection}>
             <Text style={styles.commentSectionTitle}>댓글 ({comments.length})</Text>
             
@@ -863,9 +912,11 @@ export default function PostDetailScreen() {
               </View>
             )}
           </View>
+          )}
         </ScrollView>
 
-        {/* 댓글 입력 영역 */}
+        {/* 댓글 입력 영역 - 공지사항이 아닌 경우만 표시 */}
+        {!isBoardNotice && (
         <View style={styles.commentInputContainer}>
           {isSuspended && (
             <View style={styles.suspensionWarning}>
@@ -904,6 +955,7 @@ export default function PostDetailScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* 전체화면 이미지 뷰어 */}
@@ -1031,6 +1083,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  boardNameText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
   headerRight: {
     alignItems: 'center',
   },
@@ -1067,26 +1129,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  categoryTag: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  authorProfileImageClean: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
-  },
-  categoryText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    marginRight: 8,
+    resizeMode: 'cover',
   },
   authorTag: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#E8E8E8',
+    borderWidth: 1,
+    borderColor: '#D0D0D0',
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  authorInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  authorProfileImage: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
-    backgroundColor: '#F0F0F0',
+    marginRight: 8,
+    resizeMode: 'cover',
   },
   authorText: {
     color: '#333',
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
   },
   authorTextDisabled: {
     color: '#999',

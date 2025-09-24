@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'https://camsaw.kro.kr';
+const API_BASE_URL = 'https://hoseolife.kro.kr';
 
 export interface PostCreateData {
   title: string;
@@ -35,7 +35,10 @@ export interface PostResponse {
 export interface PostListResponse {
   id: number;
   title: string;
+  content: string;
+  author_id: number;
   category: string;
+  board_name?: string;
   building_name?: string;
   building_latitude?: string;
   building_longitude?: string;
@@ -43,8 +46,11 @@ export interface PostListResponse {
   author_profile_image_url?: string;
   view_count: number;
   heart_count: number;
+  scrap_count: number;
   comment_count: number;
   created_at: string;
+  updated_at?: string;
+  image_urls?: string[];
 }
 
 export interface Comment {
@@ -53,6 +59,8 @@ export interface Comment {
   author_nickname: string;
   author_id: number;
   author_profile_image_url?: string;
+  parent_id?: number;  // 대댓글 기능
+  depth?: number;      // 댓글 깊이
   created_at: string;
 }
 
@@ -342,15 +350,20 @@ class PostService {
     }
   }
 
-  // 댓글 작성
-  async createComment(postId: number, content: string): Promise<Comment> {
+  // 댓글 작성 (대댓글 지원)
+  async createComment(postId: number, content: string, parentId?: number): Promise<Comment> {
     try {
       const headers = await this.getAuthHeaders();
+      
+      const requestBody: any = { content };
+      if (parentId) {
+        requestBody.parent_id = parentId;
+      }
       
       const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -484,14 +497,30 @@ class PostService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || '스크랩 목록 조회에 실패했습니다.');
+        // 서버 오류 시 빈 배열 반환
+        console.error('스크랩 목록 서버 응답 오류:', response.status, response.statusText);
+        return [];
       }
 
-      return await response.json();
+      const responseText = await response.text();
+      
+      // 응답이 비어있거나 JSON이 아닌 경우 빈 배열 반환
+      if (!responseText.trim()) {
+        console.log('스크랩 목록에서 빈 응답 받음');
+        return [];
+      }
+
+      try {
+        return JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('스크랩 목록 JSON 파싱 오류:', parseError);
+        console.error('응답 텍스트:', responseText);
+        return [];
+      }
     } catch (error) {
       console.error('스크랩 목록 조회 오류:', error);
-      throw error;
+      // 네트워크 오류 등 발생 시 빈 배열 반환
+      return [];
     }
   }
 
@@ -519,6 +548,68 @@ class PostService {
       return await response.json();
     } catch (error) {
       console.error('내 댓글 목록 조회 오류:', error);
+      throw error;
+    }
+  }
+
+  // 내가 좋아요한 게시글 목록 조회
+  async getMyHearts(): Promise<PostListResponse[]> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/posts/my-hearts`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        // 서버 오류 시 빈 배열 반환
+        console.error('좋아요한 게시글 목록 서버 응답 오류:', response.status, response.statusText);
+        return [];
+      }
+
+      const responseText = await response.text();
+      
+      // 응답이 비어있거나 JSON이 아닌 경우 빈 배열 반환
+      if (!responseText.trim()) {
+        console.log('좋아요한 게시글 목록에서 빈 응답 받음');
+        return [];
+      }
+
+      try {
+        const data = JSON.parse(responseText);
+        // 기존 라우터는 PaginatedPostListResponse 형태로 반환하므로 items 배열을 반환
+        return data.items || [];
+      } catch (parseError) {
+        console.error('좋아요한 게시글 목록 JSON 파싱 오류:', parseError);
+        console.error('응답 텍스트:', responseText);
+        return [];
+      }
+    } catch (error) {
+      console.error('좋아요한 게시글 목록 조회 오류:', error);
+      // 네트워크 오류 등 발생 시 빈 배열 반환
+      return [];
+    }
+  }
+
+  // 댓글 좋아요 토글
+  async toggleCommentHeart(commentId: number): Promise<{ is_liked: boolean; like_count: number }> {
+    try {
+      const headers = await this.getAuthHeaders();
+      
+      const response = await fetch(`${API_BASE_URL}/posts/comments/${commentId}/heart`, {
+        method: 'POST',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '댓글 좋아요 토글에 실패했습니다.');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('댓글 좋아요 토글 오류:', error);
       throw error;
     }
   }

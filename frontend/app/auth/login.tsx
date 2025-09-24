@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert, Image, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 
 
 
@@ -16,6 +17,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
     if (!validateEmail(email)) {
@@ -43,10 +45,10 @@ export default function LoginScreen() {
         style={styles.backBtn}
         onPress={() => router.push('/auth/register')}
       >
-        <Text style={styles.backIcon}>{'<'}</Text>
+        <Ionicons name="arrow-back" size={24} color="#000000" />
       </TouchableOpacity>
-      <Image source={require('../../assets/images/camsaw_Logo.png')} style={styles.logo} />
-      <Text style={styles.title}>캠봤다</Text>
+      <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
+      <Text style={styles.title}>HoseoLife : 호서라이프</Text>
       <Text style={styles.label}>이메일</Text>
       <TextInput
         style={styles.input}
@@ -58,14 +60,26 @@ export default function LoginScreen() {
         placeholderTextColor="#888"
       />
       <Text style={styles.label}>비밀번호</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="**********"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        placeholderTextColor="#888"
-      />
+      <View style={styles.passwordContainer}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="**********"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+          placeholderTextColor="#888"
+        />
+        <TouchableOpacity
+          style={styles.eyeIcon}
+          onPress={() => setShowPassword(!showPassword)}
+        >
+          <Ionicons 
+            name={showPassword ? "eye-off" : "eye"} 
+            size={20} 
+            color="#888" 
+          />
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity
         style={[styles.button, loading && { opacity: 0.6 }]}
         onPress={handleLogin}
@@ -82,8 +96,8 @@ const styles = StyleSheet.create({
   backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
   backIcon: { fontSize: 36, color: '#A9CBFA', fontWeight: 'bold' },
   logo: { width: 140, height: 140, marginBottom: 16, resizeMode: 'contain', marginTop: 32 },
-  title: { fontSize: 36, fontWeight: 'bold', marginBottom: 32, color: '#222' },
-  label: { fontSize: 15, color: '#6A7BA2', marginBottom: 8, alignSelf: 'flex-start', fontWeight: 'bold' },
+  title: { fontSize: 36, fontWeight: 'bold', marginBottom: 32, color: '#000000' },
+  label: { fontSize: 15, color: '#000000', marginBottom: 8, alignSelf: 'flex-start', fontWeight: 'bold' },
   input: {
     width: '100%',
     backgroundColor: '#fff',
@@ -94,11 +108,31 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 24,
-    color: '#222',
+    color: '#000000',
+  },
+  passwordContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 16,
+    marginBottom: 24,
+  },
+  passwordInput: {
+    flex: 1,
+    padding: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000000',
+  },
+  eyeIcon: {
+    padding: 16,
   },
   button: {
     width: '100%',
-    backgroundColor: '#A9CBFA',
+    backgroundColor: '#000000',
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',

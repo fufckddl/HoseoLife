@@ -4,15 +4,17 @@ import { useRouter } from 'expo-router';
 import { postService, PostListResponse } from '../services/postService';
 import { useAuth } from '../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useEffect } from 'react';
+import { BottomBar } from '../components/layout/BottomBar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getDisplayNickname } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 
 export default function PostListScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
   const [popularPosts, setPopularPosts] = useState<PostListResponse[]>([]);
   const [loading, setLoading] = useState(false);
+  const insets = useSafeAreaInsets();
 
   // 게시판 데이터
   const [boards, setBoards] = useState([
@@ -60,7 +62,7 @@ export default function PostListScreen() {
 
   const fetchBoards = async () => {
     try {
-      const response = await fetch('https://camsaw.kro.kr/boards');
+      const response = await fetch('https://hoseolife.kro.kr/boards');
       if (response.ok) {
         const boardData = await response.json();
         // 기존 기본 게시판과 새로운 승인된 게시판을 합침
@@ -92,7 +94,7 @@ export default function PostListScreen() {
   const handleBoardPress = (boardId: string, boardName: string) => {
     // 게시판 클릭 시 해당 게시판으로 이동
     if (boardId.startsWith('board_')) {
-      // 승인된 게시판인 경우 - 동적 라우팅 사용
+      // 🔧 승인된 게시판인 경우 - @[id] 화면으로 이동
       const boardIdNum = boardId.replace('board_', '');
       router.push(`/posts/board/${boardIdNum}` as any);
     } else {
@@ -147,14 +149,9 @@ export default function PostListScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.replace('/tabs/home')}
-        >
-          <Ionicons name="arrow-back" size={24} color="#000000" />
-        </TouchableOpacity>
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <View style={styles.emptySpace} />
         
         <Text style={styles.headerTitle}>게시판</Text>
         
@@ -203,7 +200,7 @@ export default function PostListScreen() {
                     {post.title}
                   </Text>
                   <View style={styles.popularPostFooter}>
-                    <Text style={styles.authorText}>{post.author_nickname}</Text>
+                    <Text style={styles.authorText}>{getDisplayNickname(post.author_nickname)}</Text>
                     <Text style={styles.timeText}>{formatTimeAgo(post.created_at)}</Text>
                   </View>
                 </TouchableOpacity>
@@ -238,6 +235,11 @@ export default function PostListScreen() {
           ))}
         </View>
       </ScrollView>
+      
+      {/* 하단 바 */}
+      <BottomBar 
+        activeTab="posts"
+      />
     </View>
   );
 }
@@ -256,9 +258,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
   },
-  backButton: {
+  emptySpace: {
     padding: 8,
     marginRight: 12,
+    width: 40, // 🆕 뒤로가기 버튼과 동일한 크기의 빈 공간
+    height: 40,
   },
   headerTitle: {
     fontSize: 24,

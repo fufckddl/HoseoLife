@@ -22,6 +22,7 @@ export interface RoomSummary {
   roomId: number;
   name: string;
   type: 'dm' | 'group';
+  imageUrl?: string;  // 🆕 채팅방 이미지 URL 추가
   lastMessage?: string;
   unread: number;
 }
@@ -40,7 +41,7 @@ interface GroupStore {
   error: string | null;
   
   // 액션
-  createGroupRequest: (name: string, description?: string) => Promise<void>;
+  createGroupRequest: (name: string, description?: string, imageUrl?: string | null) => Promise<void>;
   fetchPendingRequests: () => Promise<void>;
   approveGroupRequest: (id: number) => Promise<void>;
   rejectGroupRequest: (id: number) => Promise<void>;
@@ -60,10 +61,10 @@ export const useGroupStore = create<GroupStore>((set, get) => ({
   error: null,
   
   // 그룹 생성 요청
-  createGroupRequest: async (name: string, description?: string) => {
+  createGroupRequest: async (name: string, description?: string, imageUrl?: string | null) => {
     set({ loading: true, error: null });
     try {
-      await groupChatService.createGroupRequest(name, description);
+      await groupChatService.createGroupRequest(name, description, imageUrl);
       set({ loading: false });
     } catch (error) {
       set({ 

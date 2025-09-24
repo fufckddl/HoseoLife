@@ -70,7 +70,7 @@ export const ErrorProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // 필요시 일반 로그로만 남김
         try { console.log('[captured error]', ...args); } catch {}
 
-        // 로그인 실패 계열은 전역 에러 페이지로 이동하지 않음
+        // 로그인 실패 계열과 WebSocket 관련 오류는 전역 에러 페이지로 이동하지 않음
         try {
           const first = args?.[0];
           if (typeof first === 'string') {
@@ -79,7 +79,33 @@ export const ErrorProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               msg.includes('로그인 실패') ||
               msg.includes('로그인 오류') ||
               msg.includes('/users/login') ||
-              msg.includes('login')
+              msg.includes('login') ||
+              msg.includes('websocket') ||
+              msg.includes('webSocket') ||
+              msg.includes('연결 실패') ||
+              msg.includes('연결 오류') ||
+              msg.includes('메시지 전송 실패') ||
+              msg.includes('메시지 파싱 오류') ||
+              msg.includes('타이핑 상태 처리 실패') ||
+              msg.includes('읽음 확인 리스너 오류') ||
+              msg.includes('연결 상태 리스너 오류') ||
+              msg.includes('채팅방') ||
+              msg.includes('참여자 목록 로드 실패') ||
+              msg.includes('그룹 채팅방 정보 로드 실패') ||
+              msg.includes('사용자 나간 시간 로드 실패') ||
+              msg.includes('알림 설정 저장 실패') ||
+              msg.includes('채팅방 공유 실패') ||
+              msg.includes('채팅방 나가기 실패') ||
+              msg.includes('메시지 로드 실패') ||
+              msg.includes('이미지 선택/전송 실패') ||
+              msg.includes('시간표 로드 실패') ||
+              msg.includes('과목 추가 실패') ||
+              msg.includes('과목 검색 실패') ||
+              msg.includes('강의 삭제 실패') ||
+              msg.includes('이수구분 목록 로드 실패') ||
+              msg.includes('시간표') ||
+              msg.includes('강의') ||
+              msg.includes('과목')
             ) {
               return;
             }

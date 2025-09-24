@@ -223,12 +223,12 @@ export default function CreatePostScreen() {
       });
 
       const { latitude, longitude } = location.coords;
-      const withinCampus = isWithinHoseoCampus(latitude, longitude);
+      const withinCampus = await isWithinHoseoCampus(latitude, longitude);
       
       setIsInCampus(withinCampus);
       
       if (withinCampus) {
-        const buildingAtLocation = findBuildingAtLocation(latitude, longitude);
+        const buildingAtLocation = await findBuildingAtLocation(latitude, longitude);
         setCurrentBuilding(buildingAtLocation);
       } else {
         setCurrentBuilding(null);
