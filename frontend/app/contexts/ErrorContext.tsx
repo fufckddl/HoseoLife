@@ -98,6 +98,27 @@ export const ErrorProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               msg.includes('채팅방 나가기 실패') ||
               msg.includes('메시지 로드 실패') ||
               msg.includes('이미지 선택/전송 실패') ||
+              msg.includes('채팅방 초기화') ||
+              msg.includes('setupWebSocket') ||
+              msg.includes('WebSocket 설정') ||
+              msg.includes('채팅방 참여') ||
+              msg.includes('joinRoom') ||
+              msg.includes('connect') ||
+              msg.includes('연결 상태 변경') ||
+              msg.includes('알림 클릭') ||
+              msg.includes('딥링크') ||
+              msg.includes('딥링크 생성') ||
+              msg.includes('딥링크 파싱') ||
+              msg.includes('딥링크 네비게이션') ||
+              msg.includes('채팅 알림') ||
+              msg.includes('chat_message') ||
+              msg.includes('알림 처리') ||
+              msg.includes('알림 데이터') ||
+              msg.includes('notification') ||
+              msg.includes('채팅방 네비게이션') ||
+              msg.includes('router.dismissAll') ||
+              msg.includes('router.navigate') ||
+              msg.includes('폴백 네비게이션') ||
               msg.includes('시간표 로드 실패') ||
               msg.includes('과목 추가 실패') ||
               msg.includes('과목 검색 실패') ||
@@ -105,7 +126,28 @@ export const ErrorProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               msg.includes('이수구분 목록 로드 실패') ||
               msg.includes('시간표') ||
               msg.includes('강의') ||
-              msg.includes('과목')
+              msg.includes('과목') ||
+              msg.includes('FCM') ||
+              msg.includes('fcm') ||
+              msg.includes('토큰') ||
+              msg.includes('알림') ||
+              msg.includes('notification') ||
+              msg.includes('push') ||
+              msg.includes('ExpoPushToken') ||
+              msg.includes('ExponentPushToken') ||
+              msg.includes('권한 요청') ||
+              msg.includes('토큰 발급') ||
+              msg.includes('토큰 등록') ||
+              msg.includes('토큰 삭제') ||
+              msg.includes('알림 권한') ||
+              msg.includes('Standalone APK') ||
+              msg.includes('Expo Go') ||
+              msg.includes('Expo Push Notification') ||
+              msg.includes('getExpoPushTokenAsync') ||
+              msg.includes('알림 권한이 거부되었습니다') ||
+              msg.includes('토큰 발급 실패') ||
+              msg.includes('Expo 서버 연결') ||
+              msg.includes('네트워크 연결 문제')
             ) {
               return;
             }

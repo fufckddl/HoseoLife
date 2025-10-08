@@ -278,12 +278,7 @@ export default function BoardPostsScreen() {
                   }} 
                   style={styles.authorImage} 
                 />
-              ) : (
-                <Image 
-                  source={require('../../../assets/images/camsaw_human.png')} 
-                  style={styles.authorImage} 
-                />
-              )
+              ) : null
             ) : null}
             <View style={styles.authorTextContainer}>
               <TouchableOpacity 
@@ -450,8 +445,10 @@ export default function BoardPostsScreen() {
                             style={styles.noticeAuthorImage} 
                           />
                         ) : (
-                          <Image 
-                            source={require('../../../assets/images/camsaw_human.png')} 
+                          <Ionicons 
+                            name="person-circle-outline" 
+                            size={35} 
+                            color="#666" 
                             style={styles.noticeAuthorImage} 
                           />
                         )

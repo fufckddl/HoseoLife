@@ -85,11 +85,22 @@ export default function MyChatsScreen() {
   };
 
   const renderRoomItem = ({ item }: { item: any }) => {
-    // 그룹 채팅방의 경우 S3에서 이미지 URL 생성
+    // 🆕 디버깅: 그룹 채팅방 정보 확인
+    console.log('🔍 채팅방 정보:', {
+      name: item.name,
+      type: item.type,
+      memberCount: item.memberCount,
+      roomId: item.roomId
+    });
+
+    // 🆕 DM과 그룹 채팅방에 따라 다른 이미지 URL 처리
     const getImageUrl = () => {
       if (item.type === 'group' && item.roomId) {
         // 그룹 채팅방의 경우 S3 group 폴더에서 이미지 가져오기
         return `https://camsaw-assets.s3.ap-northeast-2.amazonaws.com/group/${item.roomId}/logo.png`;
+      } else if (item.type === 'dm') {
+        // DM 채팅방의 경우 상대방 프로필 이미지 사용
+        return item.imageUrl;
       }
       return item.imageUrl;
     };
@@ -110,6 +121,9 @@ export default function MyChatsScreen() {
               onError={() => {
                 // 이미지 로드 실패 시 기본 아이콘 표시
                 console.log(`이미지 로드 실패: ${imageUrl}`);
+              }}
+              onLoad={() => { 
+                console.log(`이미지 로드 성공: ${imageUrl}`);
               }}
             />
           ) : (
@@ -132,6 +146,15 @@ export default function MyChatsScreen() {
         <View style={styles.roomInfo}>
           <View style={styles.roomTitleContainer}>
             <Text style={styles.roomName}>{item.name}</Text>
+            {/* 🆕 그룹 채팅방 표시 */}
+            {(item.type === 'group' || item.type === 'Group') && (
+              <View style={styles.groupBadge}>
+                <Ionicons name="people" size={12} color="#FFFFFF" />
+                <Text style={styles.groupBadgeText}>
+                  그룹 {item.memberCount ? `(${item.memberCount}명)` : ''}
+                </Text>
+              </View>
+            )}
           </View>
           {item.lastMessage ? (
             <Text style={styles.lastMessage} numberOfLines={1}>
@@ -281,7 +304,13 @@ export default function MyChatsScreen() {
           <>
             {activeTab === 'my-chats' ? (
               <FlatList
-                data={[...(myRooms?.dms || []), ...(myRooms?.groups || [])]}
+                data={[...(myRooms?.dms || []), ...(myRooms?.groups || [])]
+                  .sort((a, b) => {
+                    // 🆕 최신 메시지 시간 기준으로 정렬 (최신이 위로)
+                    const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
+                    const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
+                    return timeB - timeA; // 내림차순 정렬 (최신이 먼저)
+                  })}
                 renderItem={renderRoomItem}
                 keyExtractor={(item) => `${item.roomId}-${item.type}`}
                 refreshControl={
@@ -438,6 +467,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 4,
+    gap: 8, // 🆕 그룹 배지와의 간격
   },
   roomName: {
     fontSize: 16,
@@ -561,5 +591,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     fontFamily: 'GmarketSans',
+  },
+  // 🆕 그룹 배지 스타일
+  groupBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2D3A4A',
+    paddingHorizontal: 8, // 6에서 8로 증가
+    paddingVertical: 3,   // 2에서 3으로 증가
+    borderRadius: 12,     // 10에서 12로 증가
+    gap: 3,               // 2에서 3으로 증가
+    flexShrink: 0,        // 배지가 축소되지 않도록
+  },
+  groupBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,        // 10에서 9로 줄임 (공간 절약)
+    fontWeight: 'bold',
+    fontFamily: 'GmarketSans',
+    flexShrink: 0,      // 텍스트가 축소되지 않도록
   },
 });

@@ -235,6 +235,48 @@ def update_fcm_token(
     print(f"✅ FCM 토큰 업데이트 완료")
     return {"message": "FCM 토큰이 저장되었습니다."}
 
+# 🆕 환경별 토큰 등록을 위한 PUT 엔드포인트
+@router.put("/{user_id}/fcm-token")
+def update_user_fcm_token(
+    user_id: int,
+    fcm_token_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """특정 사용자의 FCM 토큰을 업데이트 (환경별 토큰 등록용)"""
+    print(f"=== 환경별 FCM 토큰 등록 요청 ===")
+    print(f"요청자: {current_user.nickname} (ID: {current_user.id})")
+    print(f"대상 사용자 ID: {user_id}")
+    
+    # 본인만 자신의 토큰을 업데이트할 수 있음
+    if current_user.id != user_id:
+        print(f"❌ 권한 없음: 다른 사용자의 토큰 업데이트 시도")
+        raise HTTPException(status_code=403, detail="자신의 토큰만 업데이트할 수 있습니다.")
+    
+    fcm_token = fcm_token_data.get('fcm_token')
+    if not fcm_token:
+        print(f"❌ FCM 토큰이 제공되지 않음")
+        raise HTTPException(status_code=400, detail="FCM 토큰이 필요합니다.")
+    
+    print(f"새 FCM 토큰: {fcm_token[:20]}...")
+    
+    # 기존 토큰과 비교
+    old_token = current_user.fcm_token
+    if old_token:
+        print(f"기존 FCM 토큰: {old_token[:20]}...")
+        if old_token == fcm_token:
+            print(f"✅ 동일한 토큰 - 업데이트 불필요")
+            return {"message": "동일한 토큰입니다.", "updated": False}
+    else:
+        print(f"기존 FCM 토큰: 없음")
+    
+    # 토큰 업데이트
+    current_user.fcm_token = fcm_token
+    db.commit()
+    
+    print(f"✅ 환경별 FCM 토큰 등록 완료")
+    return {"message": "FCM 토큰이 성공적으로 등록되었습니다.", "updated": True}
+
 @router.post("/clear-fcm-token")
 def clear_fcm_token(
     current_user: User = Depends(get_current_user),
@@ -250,6 +292,56 @@ def clear_fcm_token(
     
     print(f"✅ FCM 토큰 제거 완료")
     return {"message": "FCM 토큰이 제거되었습니다."}
+
+@router.delete("/fcm-token")
+def delete_fcm_token(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """FCM 토큰 삭제 (알림 끄기 시 호출)"""
+    print(f"=== FCM 토큰 삭제 요청 ===")
+    print(f"사용자: {current_user.nickname} (ID: {current_user.id})")
+    print(f"기존 FCM 토큰: {current_user.fcm_token[:20] if current_user.fcm_token else 'None'}...")
+    print(f"기존 알림 설정: {current_user.notifications_enabled}")
+    
+    # 토큰 삭제 및 알림 비활성화
+    current_user.fcm_token = None
+    current_user.notifications_enabled = False
+    
+    try:
+        db.commit()
+        print(f"✅ DB 커밋 성공")
+        
+        # 변경 후 상태 확인
+        db.refresh(current_user)
+        print(f"변경 후 FCM 토큰: {current_user.fcm_token}")
+        print(f"변경 후 알림 설정: {current_user.notifications_enabled}")
+        
+    except Exception as e:
+        print(f"❌ DB 커밋 실패: {e}")
+        db.rollback()
+        raise e
+    
+    print(f"✅ FCM 토큰 삭제 및 알림 비활성화 완료")
+    return {"message": "FCM 토큰이 삭제되고 알림이 비활성화되었습니다."}
+
+@router.get("/fcm-token-status")
+def get_fcm_token_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """FCM 토큰 상태 확인 (디버깅용)"""
+    print(f"=== FCM 토큰 상태 확인 ===")
+    print(f"사용자: {current_user.nickname} (ID: {current_user.id})")
+    print(f"FCM 토큰: {current_user.fcm_token}")
+    print(f"알림 설정: {current_user.notifications_enabled}")
+    
+    return {
+        "user_id": current_user.id,
+        "fcm_token": current_user.fcm_token,
+        "notifications_enabled": current_user.notifications_enabled,
+        "has_token": current_user.fcm_token is not None
+    }
 
 @router.post("/test-notification")
 def test_notification(

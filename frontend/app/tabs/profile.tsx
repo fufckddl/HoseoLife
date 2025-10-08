@@ -38,7 +38,8 @@ export default function ProfileScreen() {
       );
     } catch (error) {
       console.error('알림 설정 변경 실패:', error);
-      Alert.alert('오류', '알림 설정 변경에 실패했습니다.');
+      const errorMessage = error instanceof Error ? error.message : '알림 설정 변경에 실패했습니다.';
+      Alert.alert('오류', errorMessage);
     } finally {
       setUpdatingNotifications(false);
     }
@@ -342,7 +343,7 @@ export default function ProfileScreen() {
                 style={styles.profileImage} 
               />
             ) : (
-              <Image source={require('../../assets/images/camsaw_human.png')} style={styles.profileImage} />
+              <Ionicons name="person-outline" size={80} color="#666" style={styles.profileImage} />
             )}
             {uploadingImage && (
               <View style={styles.uploadingOverlay}>
@@ -395,6 +396,19 @@ export default function ProfileScreen() {
           {updatingNotifications && (
             <Text style={styles.updatingText}>설정 변경 중...</Text>
           )}
+          
+          {/* 알림 도움말 */}
+          <TouchableOpacity 
+            style={styles.helpButton}
+            onPress={() => Alert.alert(
+              '알림이 오지 않나요?',
+              '1. 기기 설정 > 알림 > HoseoLife에서 알림 허용\n2. 방해금지 모드가 켜져있지 않은지 확인\n3. 앱을 완전히 종료했다가 다시 실행\n4. 위 방법으로도 안 되면 앱을 삭제하고 재설치',
+              [{ text: '확인' }]
+            )}
+          >
+            <Ionicons name="help-circle-outline" size={16} color="#666666" />
+            <Text style={styles.helpText}>알림이 오지 않나요?</Text>
+          </TouchableOpacity>
         </View>
 
         {/* 추가 정보 (스크롤 후) */}
@@ -434,6 +448,11 @@ export default function ProfileScreen() {
                   
                   <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/my-hearts' as any)}>
                     <Text style={styles.additionalText}>내가 좋아요한 게시글</Text>
+                  </TouchableOpacity>
+                  
+                  {/* 🆕 차단 목록 */}
+                  <TouchableOpacity style={styles.additionalItem} onPress={() => router.push('/pages/blocked-users' as any)}>
+                    <Text style={styles.additionalText}>차단한 사용자</Text>
                   </TouchableOpacity>
           {/* 관리자 메뉴 */}
               {isAdmin && (
@@ -733,6 +752,23 @@ const styles = StyleSheet.create({
   notificationText: {
     fontSize: 16,
     color: '#333333',
+    fontFamily: 'GmarketSans',
+  },
+  helpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  helpText: {
+    fontSize: 14,
+    color: '#666666',
+    marginLeft: 6,
     fontFamily: 'GmarketSans',
   },
   updatingText: {

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, Linking, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, Linking, TouchableOpacity, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { Marker, PROVIDER_GOOGLE, Region, Circle, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -15,6 +16,7 @@ import { TopBar } from '../components/layout/TopBar';
 import { BottomBar } from '../components/layout/BottomBar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildingService, Building } from '../services/buildingService';
+import { userService, UserInfo } from '../services/userService';
 
 type LocationCoords = {
   latitude: number;
@@ -37,6 +39,33 @@ export default function LocationScreen() {
     latitudeDelta: 0.005,
     longitudeDelta: 0.005,
   });
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [showBuildingsOnMap, setShowBuildingsOnMap] = useState(false);
+
+  // 사용자 설정 저장/불러오기
+  const saveBuildingSetting = async (enabled: boolean) => {
+    try {
+      await AsyncStorage.setItem('showBuildingsOnMap', JSON.stringify(enabled));
+    } catch (error) {
+      console.warn('건물 표시 설정 저장 실패:', error);
+    }
+  };
+
+  const loadBuildingSetting = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('showBuildingsOnMap');
+      if (saved !== null) {
+        const enabled = JSON.parse(saved);
+        setShowBuildingsOnMap(enabled);
+      } else {
+        // 저장된 설정이 없으면 기본값 false (빠른 진입을 위해)
+        setShowBuildingsOnMap(false);
+      }
+    } catch (error) {
+      console.warn('건물 표시 설정 불러오기 실패:', error);
+      setShowBuildingsOnMap(false);
+    }
+  };
 
   // 게시글/클러스터
   const [posts, setPosts] = useState<PostListResponse[]>([]);
@@ -48,6 +77,10 @@ export default function LocationScreen() {
   // 건물 데이터
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
+  
+  // 사용자 정보 및 관리자 권한
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // 모달
   const [modalVisible, setModalVisible] = useState(false);
@@ -113,9 +146,10 @@ export default function LocationScreen() {
           return;
         }
 
-        // 3) 초기 빠른 고정
+        // 3) 빠른 초기 위치 설정 (안드로이드 최적화)
+        // Expo Location API의 getCurrentPositionAsync는 timeout 옵션을 지원하지 않으므로 제거
         const fast = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
+          accuracy: Location.Accuracy.Lowest,  // 빠른 로딩을 위해 Lowest 사용
         }).catch(() => null);
 
         if (fast) {
@@ -126,41 +160,37 @@ export default function LocationScreen() {
           const initialRegion = {
             latitude,
             longitude,
-            ...accuracyToDelta(accuracy ?? 50),
+            ...accuracyToDelta(accuracy ?? 100),  // 더 넓은 초기 뷰로 빠른 로딩
           };
           setRegion(initialRegion);
-        }
-
-        // 4) 최정밀 단발 업데이트 시도
-        const preciseOnce = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.BestForNavigation,
-        }).catch(() => null);
-
-        if (preciseOnce) {
-          const { latitude, longitude, accuracy } = preciseOnce.coords;
-          const pos = { latitude, longitude };
-          setLocation(pos);
-          setLocationAccuracy(accuracy ?? null);
-          const preciseRegion = {
-            latitude,
-            longitude,
-            ...accuracyToDelta(accuracy ?? 30),
+          
+          // 지도 애니메이션 최적화
+          mapRef.current?.animateCamera({ center: pos }, { duration: 300 });
+        } else {
+          // 위치를 가져올 수 없는 경우 기본 위치 사용 (호서대 천안캠퍼스)
+          const defaultPos = { latitude: 36.827828, longitude: 127.183290 };
+          setLocation(defaultPos);
+          setLocationAccuracy(null);
+          const defaultRegion = {
+            latitude: 36.827828,
+            longitude: 127.183290,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
           };
-          setRegion(preciseRegion);
-          mapRef.current?.animateCamera({ center: pos, zoom: deltaToZoom(preciseRegion.latitudeDelta) }, { duration: 600 });
+          setRegion(defaultRegion);
         }
 
-        // 5) 고정밀 연속 추적 시작
+        // 5) 고정밀 연속 추적 시작 (안드로이드 최적화)
         if (watchSubRef.current) {
           watchSubRef.current.remove();
           watchSubRef.current = null;
         }
         watchSubRef.current = await Location.watchPositionAsync(
           {
-            // 실사용 정확도 핵심
-            accuracy: Location.Accuracy.Balanced,  // BestForNavigation에서 Balanced로 변경
-            timeInterval: 10000,    // 10초마다 (2초 → 10초)
-            distanceInterval: 15,   // 15m 이동 시 (3m → 15m)
+            // 안드로이드 성능 최적화를 위한 설정
+            accuracy: Location.Accuracy.Lowest,  // Balanced에서 Lowest로 변경하여 빠른 로딩
+            timeInterval: 30000,    // 30초마다 (10초 → 30초)
+            distanceInterval: 50,   // 50m 이동 시 (15m → 50m)
             mayShowUserSettingsDialog: true,
           },
           (loc) => {
@@ -169,12 +199,12 @@ export default function LocationScreen() {
             setLocation(next);
             setLocationAccuracy(accuracy ?? null);
 
-            // 의미 있는 이동일 때만 지도 갱신 (거리 임계값도 늘림)
-            if (!region || !location || haversine(location, next) >= 20) {
+            // 의미 있는 이동일 때만 지도 갱신 (거리 임계값 증가로 성능 향상)
+            if (!region || !location || haversine(location, next) >= 100) {
               const nextRegion = {
                 latitude,
                 longitude,
-                ...accuracyToDelta(accuracy ?? 30),
+                ...accuracyToDelta(accuracy ?? 50),
               };
               setRegion(nextRegion);
               mapRef.current?.animateCamera({ center: next }, { duration: 350 });
@@ -200,16 +230,41 @@ export default function LocationScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 게시글 및 건물 초기 로드
+  // 게시글, 건물, 사용자 정보 초기 로드 (병렬 처리)
   useEffect(() => {
-    fetchPosts();
-    fetchBuildings();
+    const loadInitialData = async () => {
+      try {
+        // 병렬로 데이터 로드하여 성능 향상
+        await Promise.all([
+          fetchPosts(),
+          fetchBuildings(),
+          fetchUserInfo(),
+          loadBuildingSetting() // 사용자 건물 표시 설정 불러오기
+        ]);
+      } catch (error) {
+        console.error('초기 데이터 로드 실패:', error);
+      }
+    };
+    
+    loadInitialData();
   }, []);
 
-  // 포커스시 새로고침
+  // 건물 표시 설정 변경 시 저장
+  useEffect(() => {
+    if (mapLoaded) { // 지도가 로드된 후에만 저장
+      saveBuildingSetting(showBuildingsOnMap);
+    }
+  }, [showBuildingsOnMap, mapLoaded]);
+
+  // 포커스시 새로고침 (성능 최적화)
   useFocusEffect(
     React.useCallback(() => {
-      setTimeout(() => fetchPosts(), 300);
+      // 지연 시간을 줄여서 더 빠른 반응성 제공
+      const timeoutId = setTimeout(() => {
+        fetchPosts();
+      }, 100);  // 300ms → 100ms로 단축
+      
+      return () => clearTimeout(timeoutId);
     }, [])
   );
 
@@ -262,6 +317,20 @@ export default function LocationScreen() {
     } catch (error) {
       console.error('건물 데이터 가져오기 실패:', error);
       setBuildings([]);
+    }
+  };
+
+  const fetchUserInfo = async () => {
+    try {
+      console.log('👤 사용자 정보 가져오는 중...');
+      const user = await userService.getCurrentUserInfo();
+      setUserInfo(user);
+      setIsAdmin(user?.is_admin === true);
+      console.log(`✅ 사용자 정보 로드 완료 - 관리자: ${user?.is_admin ? '예' : '아니오'}`);
+    } catch (error) {
+      console.error('사용자 정보 가져오기 실패:', error);
+      setUserInfo(null);
+      setIsAdmin(false);
     }
   };
 
@@ -343,8 +412,8 @@ export default function LocationScreen() {
     <View style={styles.container}>
       <TopBar title="위치" showLogo={false} />
 
-      {/* 위치 정확도 표시 */}
-      {location && (
+      {/* 위치 정확도 표시 - 관리자만 */}
+      {location && isAdmin && (
         <View style={styles.locationStatus}>
           <View style={styles.locationIndicator}>
             <Ionicons
@@ -357,7 +426,7 @@ export default function LocationScreen() {
             </Text>
           </View>
           
-          {/* 건물 경계선 토글 버튼 */}
+          {/* 건물 경계선 토글 버튼 - 관리자만 */}
           <TouchableOpacity 
             style={styles.buildingToggleButton}
             onPress={toggleBuildingOutlines}
@@ -374,39 +443,85 @@ export default function LocationScreen() {
               {showBuildingOutlines ? "건물 경계선 숨기기" : "건물 경계선 보기"}
             </Text>
           </TouchableOpacity>
-
-          {/* 캠퍼스 이동 버튼들 */}
-          <View style={styles.campusButtonsContainer}>
-            <TouchableOpacity 
-              style={styles.campusButton}
-              onPress={moveToCheonanCampus}
-            >
-              <Ionicons name="school" size={16} color="#2196F3" />
-              <Text style={styles.campusButtonText}>천안캠퍼스</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.campusButton}
-              onPress={moveToAsanCampus}
-            >
-              <Ionicons name="school" size={16} color="#FF9800" />
-              <Text style={styles.campusButtonText}>아산캠퍼스</Text>
-            </TouchableOpacity>
-          </View>
         </View>
       )}
 
-      {/* 지도 */}
+      {/* 지도 설정 버튼들 - 모든 사용자 */}
+      {location && (
+        <View style={styles.mapControlsContainer}>
+          {/* 3D 건물 표시 토글 버튼 - 모든 사용자 */}
+          <TouchableOpacity 
+            style={[styles.campusButton, showBuildingsOnMap && styles.activeButton]}
+            onPress={() => setShowBuildingsOnMap(!showBuildingsOnMap)}
+          >
+            <Ionicons 
+              name={showBuildingsOnMap ? "business" : "business-outline"} 
+              size={16} 
+              color={showBuildingsOnMap ? "#ffffff" : "#2196F3"} 
+            />
+            <Text style={[
+              styles.campusButtonText,
+              { color: showBuildingsOnMap ? "#ffffff" : "#2196F3" }
+            ]}>
+              {showBuildingsOnMap ? "3D 건물 ON" : "3D 건물 OFF"}
+            </Text>
+          </TouchableOpacity>
+          
+          {/* 캠퍼스 이동 버튼들 */}
+          <TouchableOpacity 
+            style={styles.campusButton}
+            onPress={moveToCheonanCampus}
+          >
+            <Ionicons name="school" size={16} color="#2196F3" />
+            <Text style={styles.campusButtonText}>천안캠퍼스</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.campusButton}
+            onPress={moveToAsanCampus}
+          >
+            <Ionicons name="school" size={16} color="#FF9800" />
+            <Text style={styles.campusButtonText}>아산캠퍼스</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* 지도 (안드로이드 성능 최적화) */}
       <MapView
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
         region={region}
         onRegionChangeComplete={handleRegionChange}
+        onMapReady={() => {
+          console.log('🗺️ 지도 로딩 완료!');
+          // 지도 로딩 완료 후 상태 업데이트 (건물 표시는 사용자 설정에 따라)
+          setTimeout(() => {
+            setMapLoaded(true);
+            console.log('🗺️ 지도 상태 업데이트 완료');
+            // 건물 표시는 사용자가 직접 토글해야 활성화됨 (빠른 진입을 위해)
+          }, 500); // 0.5초 후 지도 상태만 업데이트
+        }}
+        onMapLoaded={() => {
+          console.log('🗺️ MapView onMapLoaded 이벤트 발생');
+        }}
         showsUserLocation
         showsMyLocationButton
         mapType="standard"
         initialRegion={region}
+        // 안드로이드 성능 최적화 설정
+        loadingEnabled={true}
+        loadingIndicatorColor="#A9CBFA"
+        loadingBackgroundColor="#ffffff"
+        moveOnMarkerPress={false}
+        showsCompass={true}
+        showsScale={false}
+        showsBuildings={mapLoaded && showBuildingsOnMap}
+        showsIndoors={false}
+        showsTraffic={false}
+        showsPointsOfInterest={false}
+        maxZoomLevel={18}
+        minZoomLevel={3}
       >
         {/* 정확도 원 표시 */}
         {location && locationAccuracy && locationAccuracy > 0 && (
@@ -420,8 +535,8 @@ export default function LocationScreen() {
           />
         )}
 
-        {/* 건물 경계선 표시 */}
-        {showBuildingOutlines && buildings.map((building) => {
+        {/* 건물 경계선 표시 - 관리자만 */}
+        {isAdmin && showBuildingOutlines && buildings.map((building) => {
           if (building.building_type === 'polygon' && building.coordinates.length > 0) {
             // 폴리곤 건물: 좌표들을 선으로 연결하고 첫 번째 점으로 닫기
             const coordinates = [...building.coordinates, building.coordinates[0]];
@@ -530,10 +645,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  mapControlsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
   campusButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     marginTop: 8,
+    marginBottom: 8,
+    paddingHorizontal: 16,
     gap: 12,
   },
   campusButton: {
@@ -553,6 +678,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  activeButton: {
+    backgroundColor: '#2196F3',
+    borderColor: '#2196F3',
   },
   campusButtonText: {
     marginLeft: 6,

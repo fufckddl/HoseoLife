@@ -126,11 +126,23 @@ export default function ChatRoomScreen() {
 
   useEffect(() => {
     const initializeChatRoom = async () => {
-      await loadCurrentUser();
-      await loadUserLeaveTime(); // 사용자가 나간 시간 로드
-      await loadParticipants(); // 🔧 currentUserId 로드 후 참여자 로드
-      await loadMessages(); // 🔧 참여자 로드 후 메시지 로드
-      setupWebSocket();
+      try {
+        console.log('🚀 채팅방 초기화 시작');
+        await loadCurrentUser();
+        await loadUserLeaveTime(); // 사용자가 나간 시간 로드
+        await loadParticipants(); // 🔧 currentUserId 로드 후 참여자 로드
+        await loadMessages(); // 🔧 참여자 로드 후 메시지 로드
+        setupWebSocket();
+        console.log('✅ 채팅방 초기화 완료');
+      } catch (error) {
+        console.error('❌ 채팅방 초기화 실패:', error);
+        // 초기화 실패 시에도 기본적인 채팅방은 표시
+        try {
+          setupWebSocket();
+        } catch (wsError) {
+          console.error('❌ WebSocket 설정도 실패:', wsError);
+        }
+      }
     };
     
     initializeChatRoom();
@@ -471,23 +483,31 @@ export default function ChatRoomScreen() {
   };
 
   const setupWebSocket = () => {
-    console.log('🔌 WebSocket 설정 시작 - Room ID:', roomId);
-    
-    // 새로운 스펙: room_id 기반 연결
-    websocketService.connect(roomId).then((connected) => {
-      if (connected) {
-        console.log('✅ WebSocket 연결 성공');
-        // 연결 성공 후 채팅방 참여
-        setTimeout(() => {
-          const joinSuccess = websocketService.joinRoom(roomId);
-          console.log('채팅방 참여 시도 결과:', joinSuccess);
-        }, 500);
-      } else {
-        console.error('❌ WebSocket 연결 실패');
-      }
-    }).catch((error) => {
-      console.error('❌ WebSocket 연결 오류:', error);
-    });
+    try {
+      console.log('🔌 WebSocket 설정 시작 - Room ID:', roomId);
+      
+      // 새로운 스펙: room_id 기반 연결
+      websocketService.connect(roomId).then((connected) => {
+        if (connected) {
+          console.log('✅ WebSocket 연결 성공');
+          // 연결 성공 후 채팅방 참여
+          setTimeout(() => {
+            try {
+              const joinSuccess = websocketService.joinRoom(roomId);
+              console.log('채팅방 참여 시도 결과:', joinSuccess);
+            } catch (joinError) {
+              console.error('❌ 채팅방 참여 실패:', joinError);
+            }
+          }, 500);
+        } else {
+          console.error('❌ WebSocket 연결 실패');
+        }
+      }).catch((error) => {
+        console.error('❌ WebSocket 연결 오류:', error);
+      });
+    } catch (error) {
+      console.error('❌ setupWebSocket 초기화 실패:', error);
+    }
 
     // 새 메시지 수신 (새로운 이벤트 스펙)
     websocketService.onMessage((message) => {
@@ -699,12 +719,20 @@ export default function ChatRoomScreen() {
       } else {
         throw new Error('메시지 전송 실패 - 응답 형식 오류');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ 메시지 전송 실패:', error);
       
       // 실패 시 낙관적 메시지 제거
       setMessages(prev => prev.filter(msg => msg.clientMsgId !== clientMsgId));
-      Alert.alert('오류', '메시지 전송에 실패했습니다.');
+      
+      // 🆕 차단 에러 메시지 처리
+      const errorMessage = error?.response?.data?.detail || error?.message || '메시지 전송에 실패했습니다.';
+      
+      if (errorMessage.includes('차단')) {
+        Alert.alert('메시지 전송 불가', errorMessage);
+      } else {
+        Alert.alert('오류', errorMessage);
+      }
     } finally {
       setSending(false);
     }
@@ -954,9 +982,13 @@ export default function ChatRoomScreen() {
     const images: string[] | undefined = (item as any).image_urls || (item as any).imageUrls;
     if (images && Array.isArray(images) && images.length > 0) {
     return (
-        <View style={[styles.messageContainer, isOwnMessage ? styles.ownMessage : styles.otherMessage]}>
+        <View style={styles.messageContainer}>
           {renderDateDivider()}
-          <View style={[styles.messageContentContainer, isOwnMessage ? styles.ownMessageContent : styles.otherMessageContent]}>
+          <View style={[
+            styles.messageContentWrapper,
+            isOwnMessage ? styles.ownMessage : styles.otherMessage
+          ]}>
+            <View style={[styles.messageContentContainer, isOwnMessage ? styles.ownMessageContent : styles.otherMessageContent]}>
             {/* 🆕 카카오톡 스타일: 연속 메시지가 아닌 경우에만 프로필 이미지 표시 */}
             {shouldShowProfile && (
               <View style={styles.profileContainer}>
@@ -999,16 +1031,18 @@ export default function ChatRoomScreen() {
             </View>
           </View>
           </View>
+        </View>
       );
     }
         
     return (
-        <View style={[
-          styles.messageContainer,
-        isOwnMessage ? styles.ownMessage : styles.otherMessage
-      ]}>
+        <View style={styles.messageContainer}>
           {renderDateDivider()}
-          <View style={[styles.messageContentContainer, isOwnMessage ? styles.ownMessageContent : styles.otherMessageContent]}>
+          <View style={[
+            styles.messageContentWrapper,
+            isOwnMessage ? styles.ownMessage : styles.otherMessage
+          ]}>
+            <View style={[styles.messageContentContainer, isOwnMessage ? styles.ownMessageContent : styles.otherMessageContent]}>
             {/* 🆕 카카오톡 스타일: 연속 메시지가 아닌 경우에만 프로필 이미지 표시 */}
             {shouldShowProfile && (
               <View style={styles.profileContainer}>
@@ -1041,18 +1075,24 @@ export default function ChatRoomScreen() {
               
               <View style={[
                 styles.messageBubble,
-              isOwnMessage ? styles.ownBubble : styles.otherBubble,
-              item.isOptimistic && styles.optimisticMessage
+                isOwnMessage ? styles.ownBubble : styles.otherBubble,
+                item.isOptimistic && styles.optimisticMessage
               ]}>
-                <Text style={[
-                  styles.messageText,
-              isOwnMessage ? styles.ownMessageText : styles.otherMessageText
-              ]}>
+                <Text 
+                  style={[
+                    styles.messageText,
+                    isOwnMessage ? styles.ownMessageText : styles.otherMessageText
+                  ]}
+                >
                   {item.content}
                 </Text>
-              {item.isOptimistic && (
-                <ActivityIndicator size="small" color="#007AFF" style={styles.sendingIndicator} />
-              )}
+                {item.isOptimistic && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color={isOwnMessage ? "#FFFFFF" : "#007AFF"} 
+                    style={styles.sendingIndicator} 
+                  />
+                )}
               </View>
               {shouldShowTime() && (
                 <View style={[styles.messageTimeContainer, isOwnMessage ? styles.ownTimeContainer : styles.otherTimeContainer]}>
@@ -1065,6 +1105,7 @@ export default function ChatRoomScreen() {
                 </View>
               )}
             </View>
+          </View>
           </View>
         </View>
     );
@@ -1473,6 +1514,9 @@ const styles = StyleSheet.create({
   messageContainer: {
     marginVertical: 4,
   },
+  messageContentWrapper: {
+    // 날짜 구분선과 메시지 내용을 분리하기 위한 래퍼
+  },
   messageContentContainer: {
     flexDirection: 'row',  // 🔧 카카오톡 스타일: 프로필과 메시지 가로 배치
     alignItems: 'flex-start',
@@ -1490,21 +1534,18 @@ const styles = StyleSheet.create({
   },
   ownMessage: {
     alignItems: 'flex-end',
-    marginLeft: 80, // 🔧 내 메시지는 오른쪽으로 밀어서 배치 (프로필 공간 고려)
+    marginLeft: 60, // 🔧 카카오톡 스타일: 내 메시지 좌측 여백 조정
   },
   otherMessage: {
     alignItems: 'flex-start',
-    marginRight: 20, // 🔧 상대방 메시지는 프로필 공간 확보
+    marginRight: 60, // 🔧 카카오톡 스타일: 상대방 메시지 우측 여백 조정
   },
   messageBubble: {
-    maxWidth: '80%',
+    maxWidth: '85%', // 최대 너비를 늘려서 텍스트가 더 넓게 표시되도록
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
     alignSelf: 'flex-start', // 메시지 내용에 맞게 크기 조정
-    flexWrap: 'wrap', // 긴 텍스트 줄바꿈
     minWidth: 60, // 최소 너비 설정
   },
   ownBubble: {
@@ -1522,7 +1563,7 @@ const styles = StyleSheet.create({
   },
   messageText: {
     fontSize: 16,
-    flex: 1,
+    lineHeight: 20, // 🔧 줄 간격 설정으로 자연스러운 줄바꿈
   },
   ownMessageText: {
     color: '#FFFFFF', // 🔧 검은색 배경에 흰색 텍스트
@@ -1812,6 +1853,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginVertical: 16,
     width: '100%',
+    paddingHorizontal: 0, // 좌우 패딩 제거
   },
   dateDivider: {
     backgroundColor: '#f0f0f0',
@@ -1819,6 +1861,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 12,
     alignSelf: 'center',
+    marginHorizontal: 0, // 좌우 마진 제거
   },
   dateDividerText: {
     fontSize: 12,
@@ -1868,7 +1911,7 @@ const styles = StyleSheet.create({
   },
   messageContent: {
     flex: 1,
-    maxWidth: '80%',
+    maxWidth: '85%', // 메시지 버블과 동일하게 조정
   },
   senderNickname: {
     fontSize: 12,

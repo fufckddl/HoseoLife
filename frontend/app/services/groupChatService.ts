@@ -205,7 +205,23 @@ class GroupChatService {
     console.log('👥 그룹 수:', data?.groups?.length || 0);
     console.log('💬 DM 수:', data?.dms?.length || 0);
     
-    return data;
+    // 🆕 lastMessageTime과 memberCount 매핑
+    const processedData = {
+      ...data,
+      dms: data?.dms?.map((dm: any) => ({
+        ...dm,
+        lastMessageTime: dm.lastMessageTime || null
+      })) || [],
+      groups: data?.groups?.map((group: any) => ({
+        ...group,
+        lastMessageTime: group.lastMessageTime || null,
+        memberCount: group.memberCount || 0  // 🆕 memberCount 매핑
+      })) || []
+    };
+    
+    console.log('📊 처리된 데이터:', processedData);
+    
+    return processedData;
   }
 
   // 채팅방 정보 조회

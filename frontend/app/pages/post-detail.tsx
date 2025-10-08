@@ -18,13 +18,14 @@ import {
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { postService, PostResponse, Comment, ScrapResponse, ScrapStatus } from '../services/postService';
 import { userService } from '../services/userService';
+import { Ionicons } from '@expo/vector-icons';
 import { chatService } from '../services/chatService';
 import { useAuth } from '../contexts/AuthContext';
 import { FullScreenImageViewer } from '../components/FullScreenImageViewer';
 import ReportModal from '../components/ReportModal';
-import { Ionicons } from '@expo/vector-icons';
 import { getDisplayNickname, isDeactivatedUser } from '../utils/userUtils'; // 🆕 유틸리티 함수 import
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { blockService } from '../services/blockService'; // 🆕 차단 서비스 import
 
 interface PostDetail extends PostResponse {
   comments?: Comment[];
@@ -37,6 +38,7 @@ export default function PostDetailScreen() {
   const params = useLocalSearchParams();
   const { isSuspended } = useAuth();
   const postId = params.id as string;
+  const commentId = params.comment_id as string; // 대댓글 ID 파라미터
   
   console.log('PostDetailScreen - postId:', postId);
   console.log('PostDetailScreen - params:', params);
@@ -64,6 +66,39 @@ export default function PostDetailScreen() {
   const [replyingTo, setReplyingTo] = React.useState<number | null>(null);
   const [replyText, setReplyText] = React.useState('');
   const [submittingReply, setSubmittingReply] = React.useState(false);
+  const scrollViewRef = React.useRef<ScrollView>(null);
+
+  // 대댓글 ID가 있을 때 해당 댓글로 스크롤
+  React.useEffect(() => {
+    if (commentId && comments.length > 0) {
+      console.log('🔗 대댓글 ID로 스크롤:', commentId);
+      
+      // 해당 댓글이 있는지 확인
+      const targetCommentIndex = comments.findIndex(comment => 
+        comment.id.toString() === commentId || 
+        (comment as any).replies?.some((reply: any) => reply.id.toString() === commentId)
+      );
+      
+      if (targetCommentIndex !== -1) {
+        console.log('✅ 대상 댓글 찾음, 인덱스:', targetCommentIndex);
+        
+        // 잠시 후 스크롤 (렌더링 완료 후)
+        setTimeout(() => {
+          // 대략적인 스크롤 위치 계산 (댓글 높이 * 인덱스)
+          const estimatedScrollY = targetCommentIndex * 200; // 댓글당 대략 200px
+          scrollViewRef.current?.scrollTo({ y: estimatedScrollY, animated: true });
+          
+          // 하이라이트 효과를 위한 상태 업데이트
+          setHighlightedCommentId(parseInt(commentId));
+          setTimeout(() => {
+            setHighlightedCommentId(null);
+          }, 2000);
+        }, 1000);
+      }
+    }
+  }, [commentId, comments]);
+
+  const [highlightedCommentId, setHighlightedCommentId] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     console.log('=== PostDetailScreen useEffect 실행 ===');
@@ -399,9 +434,17 @@ export default function PostDetailScreen() {
               
               // 채팅방으로 이동 (새로운 Room 모델)
               router.push(`/pages/chat-room?id=${chatRoom.id}&type=dm`);
-            } catch (error) {
+            } catch (error: any) {
               console.error('채팅방 생성 실패:', error);
-              Alert.alert('오류', '채팅방을 생성하는데 실패했습니다.');
+              
+              // 🆕 차단 에러 메시지 처리
+              const errorMessage = error?.response?.data?.detail || error?.message || '채팅방을 생성하는데 실패했습니다.';
+              
+              if (errorMessage.includes('차단')) {
+                Alert.alert('채팅 불가', errorMessage);
+              } else {
+                Alert.alert('오류', errorMessage);
+              }
             }
           },
         },
@@ -421,6 +464,36 @@ export default function PostDetailScreen() {
       content: post?.title || post?.content
     });
     setShowReportModal(true);
+  };
+
+  // 🆕 사용자 차단
+  const handleBlockUser = async (authorId: number) => {
+    if (!post) return;
+    
+    Alert.alert(
+      '사용자 차단',
+      `${post.author_nickname || '알 수 없음'}님을 차단하시겠습니까?\n\n차단하면:\n• 해당 사용자의 게시글이 보이지 않습니다.\n• 해당 사용자와 채팅을 할 수 없습니다.\n• 차단은 언제든지 프로필 설정에서 해제할 수 있습니다.`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '차단',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await blockService.blockUser(authorId);
+              Alert.alert(
+                '차단 완료',
+                '사용자를 차단했습니다. 프로필 설정에서 차단 목록을 확인할 수 있습니다.',
+                [{ text: '확인', onPress: () => router.back() }]
+              );
+            } catch (error) {
+              console.error('사용자 차단 실패:', error);
+              Alert.alert('오류', '사용자 차단에 실패했습니다.');
+            }
+          }
+        }
+      ]
+    );
   };
 
 
@@ -538,8 +611,17 @@ export default function PostDetailScreen() {
 
   // 댓글 렌더링 함수 추가
   const renderComment = (comment: Comment & { replies: Comment[] }, isReply: boolean = false) => {
+    const isHighlighted = highlightedCommentId === comment.id;
+    
     return (
-      <View key={comment.id} style={[styles.commentItem, isReply && styles.replyComment]}>
+      <View 
+        key={comment.id} 
+        style={[
+          styles.commentItem, 
+          isReply && styles.replyComment,
+          isHighlighted && styles.highlightedComment
+        ]}
+      >
         <View style={styles.commentHeader}>
           <View style={styles.commentAuthorContainer}>
               {!isDeactivatedUser(comment.author_nickname) ? (
@@ -552,8 +634,10 @@ export default function PostDetailScreen() {
                   style={styles.commentAuthorImage} 
                 />
               ) : (
-                <Image 
-                  source={require('../../assets/images/camsaw_human.png')} 
+                <Ionicons 
+                  name="person-circle-outline" 
+                  size={24} 
+                  color="#666" 
                   style={styles.commentAuthorImage} 
                 />
               )
@@ -773,9 +857,13 @@ export default function PostDetailScreen() {
       <KeyboardAvoidingView 
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : Platform.OS === 'android' ? 0 : 20}
       >
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.content} 
+          showsVerticalScrollIndicator={false}
+        >
           {/* 작성자 태그 */}
           <View style={styles.tagContainer}>
             <View style={styles.tagLeftSection}>
@@ -790,8 +878,10 @@ export default function PostDetailScreen() {
                     style={styles.authorProfileImageClean} 
                   />
                 ) : (
-                  <Image 
-                    source={require('../../assets/images/camsaw_human.png')} 
+                  <Ionicons 
+                    name="person-circle-outline" 
+                    size={35} 
+                    color="#666" 
                     style={styles.authorProfileImageClean} 
                   />
                 )
@@ -917,7 +1007,7 @@ export default function PostDetailScreen() {
 
         {/* 댓글 입력 영역 - 공지사항이 아닌 경우만 표시 */}
         {!isBoardNotice && (
-        <View style={styles.commentInputContainer}>
+        <View style={[styles.commentInputContainer, Platform.OS === 'android' && styles.androidCommentInputContainer]}>
           {isSuspended && (
             <View style={styles.suspensionWarning}>
               <Text style={styles.suspensionWarningText}>
@@ -1016,16 +1106,27 @@ export default function PostDetailScreen() {
                 </TouchableOpacity>
               </>
             ) : (
-              // 작성자가 아닌 경우: 신고
-              <TouchableOpacity 
-                style={styles.menuItem} 
-                onPress={() => {
-                  setShowPostMenu(false);
-                  handleReportPost(postId);
-                }}
-              >
-                <Text style={styles.menuItemText}>신고</Text>
-              </TouchableOpacity>
+              // 작성자가 아닌 경우: 신고 & 차단
+              <>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setShowPostMenu(false);
+                    handleBlockUser(post.author_id);
+                  }}
+                >
+                  <Text style={styles.menuItemText}>사용자 차단</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setShowPostMenu(false);
+                    handleReportPost(postId);
+                  }}
+                >
+                  <Text style={styles.menuItemText}>신고</Text>
+                </TouchableOpacity>
+              </>
             )}
           </View>
         </View>
@@ -1243,6 +1344,15 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  highlightedComment: {
+    backgroundColor: '#FFF3CD',
+    borderColor: '#FFE69C',
+    borderWidth: 2,
+    shadowColor: '#FFA500',
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
   replyComment: {
     marginLeft: 24,
     marginTop: 8,
@@ -1405,6 +1515,7 @@ const styles = StyleSheet.create({
   commentInputContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
+    paddingBottom: Platform.OS === 'android' ? 24 : 12, // Android에서 하단 여백 추가
     backgroundColor: '#F8F9FA',
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
@@ -1463,6 +1574,7 @@ const styles = StyleSheet.create({
   },
   keyboardAvoidingView: {
     flex: 1,
+    paddingBottom: Platform.OS === 'android' ? 0 : 0, // Android에서 추가 패딩 제거
   },
   engagementItemDisabled: {
     opacity: 0.7,
@@ -1602,5 +1714,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#000000',
     fontWeight: '500',
+  },
+  // Android 전용 댓글 입력창 스타일
+  androidCommentInputContainer: {
+    paddingBottom: 32, // Android에서 더 많은 하단 여백
+    marginBottom: Platform.OS === 'android' ? 8 : 0, // Android에서 추가 마진
   },
 }); 

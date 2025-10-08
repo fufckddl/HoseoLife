@@ -1576,6 +1576,25 @@ def create_comment(
         else:
             print(f"자신의 게시글에 댓글 작성: 알림 전송 건너뜀")
         
+        # 대댓글 작성 시 부모 댓글 작성자에게 알림 발송
+        if new_comment.parent_id and new_comment.parent_id != current_user.id:
+            try:
+                parent_comment = db.query(Comment).filter(Comment.id == new_comment.parent_id).first()
+                if parent_comment:
+                    print(f"대댓글 알림 전송 시작: 부모 댓글 작성자 ID={parent_comment.author_id}, 대댓글 작성자={current_user.nickname}, 게시글 제목='{post.title}'")
+                    send_my_post_notification(
+                        db=db,
+                        post_author_id=parent_comment.author_id,
+                        post_title=post.title,
+                        notification_type="reply",
+                        post_id=post.id,
+                        comment_id=parent_comment.id
+                    )
+                    print("대댓글 알림 전송 성공")
+            except Exception as e:
+                print(f"대댓글 FCM 알림 발송 실패: {e}")
+                print(f"오류 타입: {type(e)}")
+        
         return comment_response
         
     except Exception as e:

@@ -48,6 +48,7 @@ class RoomSummary(BaseModel):
     image_url: Optional[str] = Field(None, alias="imageUrl")  # 🆕 채팅방 이미지 URL 추가
     last_message: Optional[str] = Field(None, alias="lastMessage")
     last_message_sender: Optional[str] = Field(None, alias="lastMessageSender")  # 🆕 발신자 정보 추가
+    last_message_time: Optional[datetime] = Field(None, alias="lastMessageTime")  # 🆕 마지막 메시지 시간 추가
     unread: int = 0
     
     class Config:

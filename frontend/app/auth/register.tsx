@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Alert, TouchableOpacity, Image, Modal, Pressable, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Alert, TouchableOpacity, Image, Modal, Pressable, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +27,10 @@ export default function RegisterScreen() {
   const [nicknameChecking, setNicknameChecking] = useState(false);
   const [nicknameValid, setNicknameValid] = useState<boolean | null>(null);
   const [nicknameMessage, setNicknameMessage] = useState('');
+  
+  // 🆕 이용약관 동의 상태
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
 
   // 학교 이메일 형식 체크 함수
   const isValidSchoolEmail = (email: string) => {
@@ -92,7 +96,7 @@ export default function RegisterScreen() {
   };
 
   // 🆕 닉네임 체크 타이머 ref
-  const nicknameTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const nicknameTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 🆕 컴포넌트 언마운트 시 타이머 정리
   React.useEffect(() => {
@@ -146,6 +150,12 @@ export default function RegisterScreen() {
 
   // 회원가입 요청
   const register = async () => {
+    // 🔧 이용약관 동의 확인
+    if (!agreedToTerms || !agreedToPrivacy) {
+      Alert.alert('알림', '이용약관 및 개인정보 처리방침에 모두 동의해주세요.');
+      return;
+    }
+    
     // 🔧 닉네임 유효성 최종 확인
     if (!nickname.trim()) {
       Alert.alert('닉네임을 입력해주세요.');
@@ -189,17 +199,60 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
       {step === 1 && (
         <>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.push('/auth/login')}
-          >
-            <Ionicons name="arrow-back" size={24} color="#000000" />
-          </TouchableOpacity>
-          <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
+          <Image source={require('../../assets/images/logo_hoseolife.png')} style={styles.logo} />
           <Text style={styles.title}>HoseoLife : 호서라이프</Text>
+          
+          {/* 🆕 Step 1: 이용약관 동의 */}
+          <Text style={styles.guide}>회원가입을 위해 약관에 동의해주세요.</Text>
+          
+          <View style={styles.termsContainer}>
+            <TouchableOpacity 
+              style={styles.checkboxRow}
+              onPress={() => setAgreedToTerms(!agreedToTerms)}
+            >
+              <Ionicons 
+                name={agreedToTerms ? "checkbox" : "square-outline"} 
+                size={24} 
+                color={agreedToTerms ? "#007AFF" : "#888"} 
+              />
+              <Text style={styles.checkboxText}>
+                <Text style={styles.linkText} onPress={() => router.push('/pages/terms-of-service')}>
+                  이용약관
+                </Text>
+                에 동의합니다 (필수)
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.checkboxRow}
+              onPress={() => setAgreedToPrivacy(!agreedToPrivacy)}
+            >
+              <Ionicons 
+                name={agreedToPrivacy ? "checkbox" : "square-outline"} 
+                size={24} 
+                color={agreedToPrivacy ? "#007AFF" : "#888"} 
+              />
+              <Text style={styles.checkboxText}>
+                <Text style={styles.linkText} onPress={() => router.push('/pages/privacy-policy')}>
+                  개인정보 처리방침
+                </Text>
+                에 동의합니다 (필수)
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
           {/* 학교 선택 입력란 */}
           <TouchableOpacity style={styles.schoolInput} onPress={() => setSchoolModal(true)}>
             <Text style={[styles.schoolInputText, !school && { color: '#888' }]}> {school ? SCHOOLS.find(s => s.value === school)?.label : '학교 선택하기'} </Text>
@@ -215,9 +268,9 @@ export default function RegisterScreen() {
             placeholderTextColor="#888"
           />
           <TouchableOpacity
-            style={[styles.button, loading && { opacity: 0.6 }]}
+            style={[styles.button, (loading || !agreedToTerms || !agreedToPrivacy) && { opacity: 0.6 }]}
             onPress={sendCode}
-            disabled={loading}
+            disabled={loading || !agreedToTerms || !agreedToPrivacy}
           >
             <Text style={styles.buttonText}>학교 인증하기</Text>
           </TouchableOpacity>
@@ -247,13 +300,7 @@ export default function RegisterScreen() {
       )}
       {step === 2 && (
         <>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => setStep(1)}
-          >
-            <Ionicons name="arrow-back" size={24} color="#000000" />
-          </TouchableOpacity>
-          <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
+          <Image source={require('../../assets/images/logo_hoseolife.png')} style={styles.logo} />
           <Text style={styles.title}>캠봤다</Text>
           <Text style={styles.guide}>인증번호를 입력해주세요.</Text>
           <TextInput
@@ -275,13 +322,7 @@ export default function RegisterScreen() {
       )}
       {step === 3 && (
         <>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => setStep(2)}
-          >
-            <Ionicons name="arrow-back" size={24} color="#000000" />
-          </TouchableOpacity>
-          <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
+          <Image source={require('../../assets/images/logo_hoseolife.png')} style={styles.logo} />
           <Text style={styles.title}>HoseoLife : 호서라이프</Text>
           <Text style={styles.guide}>닉네임과 비밀번호를 설정해주세요.</Text>
           <Text style={styles.label}>닉네임</Text>
@@ -343,6 +384,7 @@ export default function RegisterScreen() {
               />
             </TouchableOpacity>
           </View>
+          
           <TouchableOpacity
             style={[
               styles.button, 
@@ -361,12 +403,20 @@ export default function RegisterScreen() {
       <TouchableOpacity onPress={() => router.push('/auth/login')} style={{ marginTop: 32, alignItems: 'center' }}>
         <Text style={{ color: '#000000', fontSize: 16 }}>이미 계정이 있으신가요? 로그인하기</Text>
       </TouchableOpacity>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', padding: 24 },
+  container: { flex: 1, backgroundColor: '#fff' },
+  scrollContainer: { 
+    flexGrow: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    padding: 24,
+    minHeight: '100%'
+  },
   backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
   logo: { width: 140, height: 140, marginBottom: 16, resizeMode: 'contain' },
   title: { fontSize: 36, fontWeight: 'bold', marginBottom: 32, color: '#000000' },
@@ -509,5 +559,26 @@ const styles = StyleSheet.create({
   },
   invalidMessage: {
     color: '#FF3B30',
+  },
+  
+  // 🆕 이용약관 관련 스타일들
+  termsContainer: {
+    width: '100%',
+    marginBottom: 16,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  checkboxText: {
+    fontSize: 14,
+    color: '#000',
+    marginLeft: 8,
+    flex: 1,
+  },
+  linkText: {
+    color: '#007AFF',
+    textDecorationLine: 'underline',
   },
 }); 

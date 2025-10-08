@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, Image, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Alert, Image, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,59 +40,76 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity
-        style={styles.backBtn}
-        onPress={() => router.push('/auth/register')}
+    <KeyboardAvoidingView 
+      style={styles.container} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <Ionicons name="arrow-back" size={24} color="#000000" />
-      </TouchableOpacity>
-      <Image source={require('../../assets/images/hoseolife_logo.png')} style={styles.logo} />
-      <Text style={styles.title}>HoseoLife : 호서라이프</Text>
-      <Text style={styles.label}>이메일</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="********@vision.hoseo.edu"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        placeholderTextColor="#888"
-      />
-      <Text style={styles.label}>비밀번호</Text>
-      <View style={styles.passwordContainer}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.push('/auth/register')}
+        >
+          <Ionicons name="arrow-back" size={24} color="#000000" />
+        </TouchableOpacity>
+        <Image source={require('../../assets/images/logo_hoseolife.png')} style={styles.logo} />
+        <Text style={styles.title}>HoseoLife : 호서라이프</Text>
+        <Text style={styles.label}>이메일</Text>
         <TextInput
-          style={styles.passwordInput}
-          placeholder="**********"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
+          style={styles.input}
+          placeholder="********@vision.hoseo.edu"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
           placeholderTextColor="#888"
         />
-        <TouchableOpacity
-          style={styles.eyeIcon}
-          onPress={() => setShowPassword(!showPassword)}
-        >
-          <Ionicons 
-            name={showPassword ? "eye-off" : "eye"} 
-            size={20} 
-            color="#888" 
+        <Text style={styles.label}>비밀번호</Text>
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder="**********"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            placeholderTextColor="#888"
           />
+          <TouchableOpacity
+            style={styles.eyeIcon}
+            onPress={() => setShowPassword(!showPassword)}
+          >
+            <Ionicons 
+              name={showPassword ? "eye-off" : "eye"} 
+              size={20} 
+              color="#888" 
+            />
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity
+          style={[styles.button, loading && { opacity: 0.6 }]}
+          onPress={handleLogin}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>로그인</Text>
         </TouchableOpacity>
-      </View>
-      <TouchableOpacity
-        style={[styles.button, loading && { opacity: 0.6 }]}
-        onPress={handleLogin}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>로그인</Text>
-      </TouchableOpacity>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', padding: 24 },
+  container: { flex: 1, backgroundColor: '#fff' },
+  scrollContainer: { 
+    flexGrow: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    padding: 24,
+    minHeight: '100%'
+  },
   backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
   backIcon: { fontSize: 36, color: '#A9CBFA', fontWeight: 'bold' },
   logo: { width: 140, height: 140, marginBottom: 16, resizeMode: 'contain', marginTop: 32 },

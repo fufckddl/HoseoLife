@@ -191,8 +191,10 @@ export default function PostsScreen() {
                     style={styles.authorProfileImage} 
                   />
                 ) : (
-                  <Image 
-                    source={require('../../assets/images/camsaw_human.png')} 
+                  <Ionicons 
+                    name="person-circle-outline" 
+                    size={40} 
+                    color="#666" 
                     style={styles.authorProfileImage} 
                   />
                 )

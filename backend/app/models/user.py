@@ -58,3 +58,7 @@ class User(Base):
     # 사용자 시간표 관계는 나중에 추가 (순환 참조 방지)
     # user_schedules = relationship("UserSchedule", back_populates="user", cascade="all, delete-orphan", lazy="select")
     
+    # 🆕 차단 관계
+    blocking = relationship("Block", foreign_keys="Block.blocker_id", back_populates="blocker", cascade="all, delete-orphan")
+    blocked_by = relationship("Block", foreign_keys="Block.blocked_id", back_populates="blocked", cascade="all, delete-orphan")
+    

@@ -19,7 +19,7 @@
     <key>CFBundlePackageType</key>
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.0.4</string>
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleURLTypes</key>
@@ -27,6 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
+          <string>hoseolife</string>
           <string>hoseolife</string>
           <string>com.dlckdfuf.camsaw</string>
         </array>
@@ -39,7 +40,7 @@
       </dict>
     </array>
     <key>CFBundleVersion</key>
-    <string>14</string>
+    <string>32</string>
     <key>GMSApiKey</key>
     <string>your-google-maps-api-key</string>
     <key>ITSAppUsesNonExemptEncryption</key>
@@ -94,16 +95,26 @@
     <key>NSCameraUsageDescription</key>
     <string>HoseoLife는 게시글에 사진을 촬영하여 업로드하기 위해 카메라에 접근합니다.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>HoseoLife가 위치 정보를 사용하여 주변 게시글을 표시합니다.</string>
+    <string>HoseoLife는 주변 게시글을 표시하기 위해 위치 정보를 사용합니다.</string>
     <key>NSLocationAlwaysUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your location</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>HoseoLife는 주변 게시글을 표시하기 위해 위치 정보를 사용합니다.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>HoseoLife는 시간표를 갤러리에 저장하기 위해 사진 저장 권한이 필요합니다.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>HoseoLife는 게시글에 사진을 업로드하기 위해 사진 라이브러리에 접근합니다.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
+    </array>
+    <key>RCTNewArchEnabled</key>
+    <true/>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>remote-notification</string>
     </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>

@@ -3,8 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userService, UserInfo } from '../services/userService';
 import { reportService } from '../services/reportService';
 import { notificationService } from '../services/notificationService';
-
-
 import * as Notifications from 'expo-notifications';
 
 interface AuthContextType {
@@ -28,6 +26,10 @@ interface AuthContextType {
   toggleNotifications: (enabled: boolean) => Promise<void>;
   loadNotificationSettings: () => Promise<void>;
   deactivateAccount: () => Promise<void>; // 🆕 회원탈퇴 함수 추가
+  testAndroidNotification: () => Promise<void>; // 🆕 Android 알림 테스트
+  testIOSNotification: () => Promise<void>; // 🆕 iOS 알림 테스트
+  checkNotificationPermissions: () => Promise<boolean>; // 🆕 알림 권한 확인
+  sendServerTestNotification: () => Promise<boolean>; // 🆕 서버 알림 테스트
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -59,6 +61,10 @@ export const useAuth = () => {
         toggleNotifications: async () => {},
         loadNotificationSettings: async () => {},
         deactivateAccount: async () => {}, // 🆕 회원탈퇴 함수 추가
+        testAndroidNotification: async () => {}, // 🆕 Android 알림 테스트
+        testIOSNotification: async () => {}, // 🆕 iOS 알림 테스트
+        checkNotificationPermissions: async () => false, // 🆕 알림 권한 확인
+        sendServerTestNotification: async () => false, // 🆕 서버 알림 테스트
       };
     }
     
@@ -68,8 +74,9 @@ export const useAuth = () => {
       'setShowPenaltyNotification', 'showSuspensionModal', 'setShowSuspensionModal',
       'isSuspended', 'notificationsEnabled', 'setNotificationsEnabled',
       'login', 'logout', 'checkAuthStatus', 'checkUserPenalties',
-      'markPenaltyNotificationAsShown', 'updateFCMToken', 'getFCMToken',
-      'toggleNotifications', 'loadNotificationSettings', 'deactivateAccount' // 🆕 추가
+        'markPenaltyNotificationAsShown', 'updateFCMToken', 'getFCMToken',
+        'toggleNotifications', 'loadNotificationSettings', 'deactivateAccount', // 🆕 추가
+        'testAndroidNotification', 'testIOSNotification', 'checkNotificationPermissions', 'sendServerTestNotification' // 🆕 추가
     ] as const;
     
     for (const prop of requiredProps) {
@@ -106,6 +113,10 @@ export const useAuth = () => {
       toggleNotifications: async () => {},
       loadNotificationSettings: async () => {},
       deactivateAccount: async () => {}, // 🆕 회원탈퇴 함수 추가
+      testAndroidNotification: async () => {}, // 🆕 Android 알림 테스트
+      testIOSNotification: async () => {}, // 🆕 iOS 알림 테스트
+      checkNotificationPermissions: async () => false, // 🆕 알림 권한 확인
+      sendServerTestNotification: async () => false, // 🆕 서버 알림 테스트
     };
   }
 };
@@ -141,14 +152,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 알림 리스너 설정 (안전하게 처리)
   useEffect(() => {
     if (isAuthenticated) {
-      try {
-        console.log('🔔 알림 리스너 설정 시작');
-        notificationService.setupNotificationListeners();
-        console.log('✅ 알림 리스너 설정 완료');
-      } catch (error) {
-        console.error('❌ 알림 리스너 설정 실패 (무시):', error);
-        // 알림 리스너 설정 실패는 앱의 핵심 기능이 아니므로 무시
-      }
+      const setupListeners = async () => {
+        try {
+          console.log('🔔 알림 리스너 설정 시작');
+          await notificationService.setupNotificationListeners();
+          console.log('✅ 알림 리스너 설정 완료');
+        } catch (error) {
+          console.error('❌ 알림 리스너 설정 실패 (무시):', error);
+          // 알림 리스너 설정 실패는 앱의 핵심 기능이 아니므로 무시
+        }
+      };
+      
+      setupListeners();
     }
   }, [isAuthenticated]);
 
@@ -227,19 +242,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(userInfo);
         console.log('로그인 성공:', userInfo.nickname);
         
-        // FCM 토큰 발급 및 업데이트 (안전하게 처리)
+        // 로그인 후 알림 권한 요청 및 토큰 등록 (안전하게 처리)
         try {
-          console.log('🔔 FCM 토큰 발급 시작');
-          const fcmToken = await getFCMToken();
-          if (fcmToken) {
-            await updateFCMToken(fcmToken);
-            console.log('✅ FCM 토큰 발급 및 업데이트 완료');
+          console.log('🔔 로그인 후 알림 권한 요청 시작');
+          
+          // notificationService import
+          const { notificationService } = await import('../services/notificationService');
+          
+          // 🔧 기존 권한 상태 확인 후 필요시에만 요청
+          const { status } = await Notifications.getPermissionsAsync();
+          console.log('🔍 로그인 시 현재 알림 권한 상태:', status);
+          
+          if (status === 'granted') {
+            // 이미 권한이 있으면 토큰만 등록
+            console.log('✅ 이미 알림 권한이 허용됨 - 토큰 등록만 진행');
+            await notificationService.registerPushToken(userInfo.id.toString());
+            console.log('✅ 토큰 등록 완료');
           } else {
-            console.log('⚠️ FCM 토큰 발급 실패 또는 권한 없음 (무시)');
+            // 권한이 없으면 권한 요청 후 토큰 등록
+            console.log('🔔 알림 권한 요청 시작');
+            const token = await notificationService.requestPermissions();
+            if (token) {
+              // 권한 허용 시 토큰 등록
+              await notificationService.registerPushToken(userInfo.id.toString());
+              console.log('✅ 알림 권한 허용 및 토큰 등록 완료');
+            } else {
+              console.log('⚠️ 알림 권한 거부 또는 토큰 발급 실패 (무시)');
+            }
           }
-        } catch (fcmError) {
-          console.error('❌ FCM 토큰 발급 실패 (무시):', fcmError);
-          // FCM 토큰 발급 실패는 앱의 핵심 기능이 아니므로 무시
+        } catch (notificationError) {
+          console.error('❌ 알림 권한 요청 실패 (무시):', notificationError);
+          // 알림 권한 요청 실패는 앱의 핵심 기능이 아니므로 무시
         }
 
 
@@ -397,16 +430,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
 
-  const toggleNotifications = async (enabled: boolean) => {
-    try {
-      if (user) {
+    const toggleNotifications = async (enabled: boolean) => {
+      try {
+        if (user) {
+          if (enabled) {
+            // 알림 켜기: 권한 요청 + 새 토큰 발급 및 등록
+            console.log('🔔 알림 활성화: 권한 요청 및 새 토큰 발급 시작...');
+            
+            // 🔧 기존 권한 상태 확인
+            const { status } = await Notifications.getPermissionsAsync();
+            console.log('🔍 현재 알림 권한 상태:', status);
+          
+          if (status !== 'granted') {
+            // 권한이 없으면 권한 요청
+            console.log('🔔 알림 권한 요청 시작...');
+            const token = await notificationService.requestPermissions();
+            if (!token) {
+              throw new Error('알림 권한이 거부되었습니다.');
+            }
+          }
+          
+                // 🔧 새 토큰 발급 및 등록 (기존 토큰 삭제 후)
+                
+                // 1. 먼저 기존 토큰 삭제
+                try {
+                  await notificationService.unregisterPushToken();
+                  console.log('🗑️ 기존 토큰 삭제 완료');
+                } catch (deleteError) {
+                  console.log('⚠️ 기존 토큰 삭제 실패 (무시):', deleteError);
+                }
+                
+                // 2. 잠시 대기 (토큰 삭제 완료 대기)
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 3. 새 토큰 발급 및 등록
+                const registeredToken = await notificationService.registerPushToken(user.id.toString());
+                if (!registeredToken) {
+                  throw new Error('Expo Push Notification 새 토큰 발급에 실패했습니다. 네트워크 연결과 Expo 서비스 상태를 확인해주세요.');
+                }
+                
+                console.log('✅ 새 Expo Push Notification 토큰 등록 완료:', registeredToken.substring(0, 20) + '...');
+        } else {
+          // 알림 끄기: 토큰 삭제
+          console.log('🔕 알림 비활성화: 토큰 삭제 시작...');
+          await notificationService.unregisterPushToken();
+          console.log('✅ 토큰 삭제 완료');
+        }
+        
+        // 서버 설정 업데이트
         await userService.updateNotificationSettings(enabled);
         setNotificationsEnabled(enabled);
         console.log(`알림 설정이 ${enabled ? '활성화' : '비활성화'}되었습니다.`);
       }
-    } catch (error) {
-      console.error('알림 설정 업데이트 실패:', error);
-    }
+        } catch (error) {
+          console.error('알림 설정 업데이트 실패:', error);
+          throw error; // 에러를 다시 던져서 UI에서 처리할 수 있도록
+        }
   };
 
   const loadNotificationSettings = async () => {
@@ -450,6 +529,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // 🆕 Android 알림 테스트 함수
+  const testAndroidNotification = async () => {
+    try {
+      await notificationService.testAndroidNotification();
+    } catch (error) {
+      console.error('❌ Android 알림 테스트 실패:', error);
+    }
+  };
+
+  // 🆕 iOS 알림 테스트 함수
+  const testIOSNotification = async () => {
+    try {
+      await notificationService.testIOSNotification();
+    } catch (error) {
+      console.error('❌ iOS 알림 테스트 실패:', error);
+    }
+  };
+
+  // 🆕 알림 권한 확인 함수
+  const checkNotificationPermissions = async (): Promise<boolean> => {
+    try {
+      const result = await notificationService.checkNotificationPermissions();
+      // result: { granted: boolean; canAskAgain: boolean; status: string; }
+      return !!result.granted;
+    } catch (error) {
+      console.error('❌ 알림 권한 확인 실패:', error);
+      return false;
+    }
+  };
+
+  // 🆕 서버 알림 테스트 함수
+  const sendServerTestNotification = async (): Promise<boolean> => {
+    try {
+      return await notificationService.sendServerTestNotification();
+    } catch (error) {
+      console.error('❌ 서버 알림 테스트 실패:', error);
+      return false;
+    }
+  };
+
   const value: AuthContextType = {
     isAuthenticated,
     user,
@@ -471,6 +590,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     toggleNotifications,
     loadNotificationSettings,
     deactivateAccount, // 🆕 회원탈퇴 함수 추가
+    testAndroidNotification, // 🆕 Android 알림 테스트
+    testIOSNotification, // 🆕 iOS 알림 테스트
+    checkNotificationPermissions, // 🆕 알림 권한 확인
+    sendServerTestNotification, // 🆕 서버 알림 테스트
   };
 
   // value 객체의 모든 속성이 정의되어 있는지 확인

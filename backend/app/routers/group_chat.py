@@ -323,6 +323,35 @@ def find_or_create_direct_chat(
     if not target_user:
         raise HTTPException(status_code=404, detail="상대방 사용자를 찾을 수 없습니다")
     
+    # 🆕 차단 확인 (양방향)
+    from app.models.block import Block
+    
+    # 내가 상대방을 차단했는지 확인
+    i_blocked_other = db.query(Block).filter(
+        Block.blocker_id == current_user.id,
+        Block.blocked_id == target_user_id,
+        Block.is_active == True
+    ).first()
+    
+    if i_blocked_other:
+        raise HTTPException(
+            status_code=403,
+            detail="차단한 사용자와는 채팅할 수 없습니다."
+        )
+    
+    # 상대방이 나를 차단했는지 확인
+    other_blocked_me = db.query(Block).filter(
+        Block.blocker_id == target_user_id,
+        Block.blocked_id == current_user.id,
+        Block.is_active == True
+    ).first()
+    
+    if other_blocked_me:
+        raise HTTPException(
+            status_code=403,
+            detail="상대방이 회원님을 차단하여 채팅할 수 없습니다."
+        )
+    
     # 기존 1:1 채팅방이 있는지 확인
     # 두 사용자가 모두 참여한 DM 타입의 방을 찾기
     existing_room = db.query(Room).join(Membership, Room.id == Membership.room_id).filter(
@@ -565,6 +594,7 @@ def get_my_rooms(
         
         # 1:1 채팅방인 경우 상대방 닉네임을 이름으로 사용
         display_name = room.name or "채팅방"
+        other_user_profile_image = None  # 🆕 상대방 프로필 이미지
         if room.type == "dm":
             # DM 채팅방의 경우 상대방 사용자 찾기
             other_membership = db.query(Membership).filter(
@@ -576,7 +606,8 @@ def get_my_rooms(
                 other_user = db.query(User).filter(User.id == other_membership.user_id).first()
                 if other_user:
                     display_name = other_user.nickname
-                    print(f"👤 1:1 채팅방 상대방: {other_user.nickname}")
+                    other_user_profile_image = other_user.profile_image_url  # 🆕 상대방 프로필 이미지 저장
+                    print(f"👤 1:1 채팅방 상대방: {other_user.nickname}, 프로필 이미지: {other_user_profile_image}")
         
         # 🔧 마지막 메시지 처리 개선 (이미지 메시지 포함)
         last_message_text = None
@@ -598,13 +629,21 @@ def get_my_rooms(
                 # 일반 텍스트 메시지인 경우
                 last_message_text = last_message.content
         
+        # 🆕 DM인 경우 상대방 프로필 이미지, 그룹인 경우 채팅방 이미지 사용
+        room_image_url = None
+        if room.type == "dm":
+            room_image_url = other_user_profile_image  # DM: 상대방 프로필 이미지
+        else:
+            room_image_url = getattr(room, 'image_url', None)  # 그룹: 채팅방 이미지
+        
         room_summary = RoomSummary(
             roomId=room.id,  # alias 사용
             name=display_name,
             type=room.type,
-            imageUrl=getattr(room, 'image_url', None),  # 🆕 안전하게 image_url 접근
+            imageUrl=room_image_url,  # 🆕 DM/그룹에 따라 적절한 이미지 URL 사용
             lastMessage=last_message_text,  # 🔧 개선된 메시지 텍스트 사용
             lastMessageSender=last_message_sender_name,  # 🆕 발신자 정보 추가
+            lastMessageTime=last_message.sent_at if last_message else None,  # 🆕 마지막 메시지 시간 추가
             unread=0  # TODO: 읽지 않은 메시지 수 계산
         )
         
@@ -766,6 +805,30 @@ async def send_room_message(
     
     if not membership:
         raise HTTPException(status_code=403, detail="채팅방에 접근할 권한이 없습니다")
+    
+    # 🆕 DM 채팅방인 경우 차단 확인
+    if room.type == "dm":
+        from app.models.block import Block
+        
+        # 상대방 찾기
+        other_membership = db.query(Membership).filter(
+            Membership.room_id == room_id,
+            Membership.user_id != current_user.id
+        ).first()
+        
+        if other_membership:
+            # 상대방이 나를 차단했는지 확인
+            is_blocked_by_other = db.query(Block).filter(
+                Block.blocker_id == other_membership.user_id,
+                Block.blocked_id == current_user.id,
+                Block.is_active == True
+            ).first()
+            
+            if is_blocked_by_other:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="상대방이 회원님을 차단하여 메시지를 보낼 수 없습니다."
+                )
     
     # 메시지 생성 (한국 시간으로 저장)
     from datetime import datetime, timezone, timedelta

@@ -24,7 +24,9 @@ export interface RoomSummary {
   type: 'dm' | 'group';
   imageUrl?: string;  // 🆕 채팅방 이미지 URL 추가
   lastMessage?: string;
+  lastMessageTime?: string;  // 🆕 마지막 메시지 시간 추가
   unread: number;
+  memberCount?: number;  // 🆕 그룹 멤버 수 추가
 }
 
 export interface MyRooms {

@@ -5,6 +5,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { TopBar } from '../components/layout/TopBar';
 import { scheduleService, Course as APICourse } from '../services/scheduleService';
+import { captureRef } from 'react-native-view-shot';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -95,6 +98,11 @@ export default function ScheduleScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{day: number, period: number} | null>(null);
   
+  // 🆕 이미지 캡처용 ref
+  const scheduleRef = useRef<View>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [showCaptureModal, setShowCaptureModal] = useState(false);
+  
   // 🆕 강의 정보 모달 상태
   const [showCourseDetailModal, setShowCourseDetailModal] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -145,6 +153,56 @@ export default function ScheduleScreen() {
   const totalCredits = uniqueCourseList.reduce((sum, course) => sum + course.credits, 0);
   const majorCredits = uniqueCourseList.filter(course => course.isMajor).reduce((sum, course) => sum + course.credits, 0);
   const generalCredits = totalCredits - majorCredits;
+
+  // 🆕 시간표 이미지 캡처 및 저장 함수
+  const captureSchedule = () => {
+    // 캡처 모달 표시
+    setShowCaptureModal(true);
+  };
+
+  // 실제 이미지 캡처 실행
+  const executeCapture = async () => {
+    if (!scheduleRef.current) {
+      Alert.alert('오류', '시간표를 찾을 수 없습니다.');
+      setShowCaptureModal(false);
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      // 미디어 라이브러리 권한 확인
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('권한 필요', '갤러리에 저장하기 위해 사진 접근 권한이 필요합니다.');
+        setShowCaptureModal(false);
+        return;
+      }
+
+      // 시간표를 이미지로 캡처
+      const uri = await captureRef(scheduleRef, {
+        format: 'png',
+        quality: 1.0,
+        backgroundColor: '#ffffff',
+      });
+
+      // 갤러리에 저장
+      const asset = await MediaLibrary.saveToLibraryAsync(uri);
+      
+      Alert.alert(
+        '저장 완료', 
+        '시간표가 갤러리에 저장되었습니다.',
+        [{ text: '확인' }]
+      );
+      
+      console.log('시간표 이미지 저장 완료:', uri);
+      setShowCaptureModal(false);
+    } catch (error: any) {
+      console.error('이미지 저장 실패:', error);
+      Alert.alert('저장 실패', '시간표 저장에 실패했습니다.\n다시 시도해주세요.');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
 
   // 하단 슬라이드 제어 함수들
   const showBottomSheet = () => {
@@ -518,6 +576,14 @@ export default function ScheduleScreen() {
   const renderScheduleGrid = () => {
     return (
       <View style={styles.gridContainer}>
+        {/* 🆕 시간표 헤더 정보 */}
+        <View style={styles.scheduleHeader}>
+          <Text style={styles.scheduleTitle}>강의 시간표</Text>
+          <Text style={styles.scheduleSubtitle}>
+            총 {totalCredits}학점 (전공 {majorCredits}학점, 교양 {generalCredits}학점)
+          </Text>
+        </View>
+        
         {/* 요일 헤더 */}
         <View style={styles.headerRow}>
           <View style={styles.timeColumn} />
@@ -532,7 +598,7 @@ export default function ScheduleScreen() {
         {PERIODS.map((period, periodIndex) => (
           <View key={periodIndex} style={styles.timeRow}>
             {/* 시간 표시 */}
-            <View style={styles.timeColumn}>
+            <View style={styles.timeRowColumn}>
               <Text style={styles.timeText}>{period.time}</Text>
             </View>
             
@@ -566,10 +632,7 @@ export default function ScheduleScreen() {
                       <Text style={styles.courseName} numberOfLines={2}>
                         {course.name}
                       </Text>
-                      <Text style={styles.courseDetail} numberOfLines={1}>
-                        {course.professor}
-                      </Text>
-                      <Text style={styles.courseDetail} numberOfLines={1}>
+                      <Text style={styles.courseLocation} numberOfLines={2}>
                         {course.classroom}
                       </Text>
                     </View>
@@ -613,6 +676,22 @@ export default function ScheduleScreen() {
         >
           <Ionicons name="search" size={20} color="#fff" />
           <Text style={styles.searchButtonText}>과목 검색</Text>
+        </TouchableOpacity>
+        
+        {/* 🆕 시간표 저장 버튼 */}
+        <TouchableOpacity 
+          style={[styles.downloadButton, isCapturing && styles.downloadButtonDisabled]}
+          onPress={captureSchedule}
+          disabled={isCapturing}
+        >
+          <Ionicons 
+            name={isCapturing ? "hourglass" : "download"} 
+            size={20} 
+            color="#fff" 
+          />
+          <Text style={styles.downloadButtonText}>
+            {isCapturing ? "저장 중..." : "시간표 저장"}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -1018,11 +1097,6 @@ export default function ScheduleScreen() {
                   <Text style={styles.detailValue}>{selectedCourse.name}</Text>
                 </View>
 
-                {/* 교수명 */}
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>교수</Text>
-                  <Text style={styles.detailValue}>{selectedCourse.professor}</Text>
-                </View>
 
                 {/* 학점 */}
                 <View style={styles.detailRow}>
@@ -1101,6 +1175,104 @@ export default function ScheduleScreen() {
               >
                 <Ionicons name="trash" size={16} color="#fff" style={{ marginRight: 4 }} />
                 <Text style={styles.deleteButtonText}>강의 제거</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 🆕 시간표 캡처 모달 */}
+      <Modal
+        visible={showCaptureModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCaptureModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.captureModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>시간표 저장</Text>
+              <TouchableOpacity onPress={() => setShowCaptureModal(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            {/* 🆕 스크롤 가능한 캡처용 시간표 */}
+            <ScrollView 
+              style={styles.captureScrollView}
+              showsVerticalScrollIndicator={true}
+              bounces={false}
+            >
+              <View ref={scheduleRef} style={styles.captureScheduleContainer}>
+              {/* 시간표 그리드만 캡처 */}
+              <View style={styles.gridContainer}>
+                {/* 요일 헤더 */}
+                <View style={styles.headerRow}>
+                  <View style={styles.timeColumn} />
+                  {DAYS.map((day, index) => (
+                    <View key={index} style={styles.dayHeader}>
+                      <Text style={styles.dayText}>{day}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* 시간표 행들 */}
+                {PERIODS.map((period, periodIndex) => (
+                  <View key={periodIndex} style={styles.timeRow}>
+                    {/* 시간 표시 */}
+                    <View style={styles.timeRowColumn}>
+                      <Text style={styles.timeText}>{period.time}</Text>
+                    </View>
+                    
+                    {/* 각 요일 셀 */}
+                    {DAYS.map((_, dayIndex) => {
+                      const course = courses.find(c => 
+                        c.day === dayIndex && 
+                        c.startPeriod <= periodIndex && 
+                        c.endPeriod >= periodIndex
+                      );
+                      
+                      return (
+                        <View
+                          key={dayIndex}
+                          style={[
+                            styles.cell,
+                            course && { backgroundColor: course.color },
+                          ]}
+                        >
+                          {course && (
+                            <View style={styles.courseInfo}>
+                              <Text style={styles.courseName} numberOfLines={2}>
+                                {course.name}
+                              </Text>
+                              {/* 🚫 캡처 시 강의실 정보 제외 */}
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+              </View>
+            </ScrollView>
+
+            {/* 🆕 고정된 버튼 영역 */}
+            <View style={styles.captureModalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowCaptureModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.addButton]}
+                onPress={executeCapture}
+                disabled={isCapturing}
+              >
+                <Text style={styles.addButtonText}>
+                  {isCapturing ? "저장 중..." : "갤러리에 저장"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1242,6 +1414,26 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 4,
   },
+  // 🆕 다운로드 버튼 스타일
+  downloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#28a745',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginLeft: 8,
+  },
+  downloadButtonDisabled: {
+    backgroundColor: '#6c757d',
+    opacity: 0.7,
+  },
+  downloadButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
   
   // 시간표 스크롤 컨테이너
   scheduleScrollContainer: {
@@ -1255,14 +1447,42 @@ const styles = StyleSheet.create({
   gridContainer: {
     backgroundColor: '#fff',
   },
+  // 🆕 시간표 헤더 스타일
+  scheduleHeader: {
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 2,
+    borderBottomColor: '#000',
+    alignItems: 'center',
+  },
+  scheduleTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 4,
+  },
+  scheduleSubtitle: {
+    fontSize: 14,
+    color: '#666',
+  },
   headerRow: {
     flexDirection: 'row',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
   },
   timeColumn: {
-    width: 60,
+    width: 50, // 60에서 50으로 줄임
     height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#ddd',
+  },
+  // 🆕 시간표 행의 시간 컬럼 스타일
+  timeRowColumn: {
+    width: 50, // 60에서 50으로 줄임
+    height: 80, // 셀 높이와 동일하게
     justifyContent: 'center',
     alignItems: 'center',
     borderRightWidth: 1,
@@ -1292,7 +1512,7 @@ const styles = StyleSheet.create({
   },
   cell: {
     flex: 1,
-    height: 60,
+    height: 80, // 60에서 80으로 증가
     borderRightWidth: 1,
     borderRightColor: '#ddd',
     borderBottomWidth: 1,
@@ -1300,6 +1520,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
+    paddingHorizontal: 2, // 4에서 2로 줄임 (더 많은 공간 확보)
+    paddingVertical: 2,   // 4에서 2로 줄임 (더 많은 공간 확보)
   },
   cellSelectMode: {
     borderWidth: 2,
@@ -1310,15 +1532,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingHorizontal: 1, // 2에서 1로 더 줄임
+    paddingVertical: 1,   // 2에서 1로 더 줄임
+    width: '100%',        // 전체 너비 사용
   },
   courseName: {
-    fontSize: 11,
+    fontSize: 9, // 10에서 9로 더 줄임
     fontWeight: 'bold',
-    color: '#000',  // 🔧 검은색으로 변경
+    color: '#000',
     textAlign: 'center',
-    marginBottom: 2,
+    marginBottom: 0, // 간격 제거
+    lineHeight: 11, // 12에서 11로 줄임
+    flexWrap: 'wrap', // 줄바꿈 허용
+    flexShrink: 0,   // 텍스트 축소 방지
   },
   courseDetail: {
     fontSize: 9,
@@ -1326,6 +1552,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.8,   // 🔧 투명도 조정 (검은색에 맞게)
     lineHeight: 12,
+  },
+  // 🆕 강의실 위치 전용 스타일
+  courseLocation: {
+    fontSize: 7, // 8에서 7로 더 줄임
+    color: '#000',
+    textAlign: 'center',
+    opacity: 0.8,
+    lineHeight: 9, // 10에서 9로 줄임
+    marginTop: 0,   // 간격 제거
+    fontWeight: '500',
+    flexWrap: 'wrap', // 줄바꿈 허용
+    flexShrink: 0,   // 텍스트 축소 방지
   },
   modalOverlay: {
     flex: 1,
@@ -1339,6 +1577,27 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxHeight: '80%',
+  },
+  // 🆕 캡처 모달 스타일
+  captureModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 20,
+    width: '95%',
+    height: '90%', // maxHeight에서 height로 변경
+    flexDirection: 'column', // 세로 방향 레이아웃
+  },
+  captureScrollView: {
+    flex: 1, // 남은 공간을 모두 사용
+    marginVertical: 16,
+  },
+  captureScheduleContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#ddd',
+    overflow: 'hidden',
+    marginBottom: 16, // 하단 여백 추가
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1381,6 +1640,16 @@ const styles = StyleSheet.create({
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  // 🆕 캡처 모달 전용 버튼 스타일
+  captureModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    flexShrink: 0, // 버튼 영역이 줄어들지 않도록 고정
   },
   modalButton: {
     flex: 1,

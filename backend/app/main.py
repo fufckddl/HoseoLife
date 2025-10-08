@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.routers import user, email_verification, post, contact, report, alarm, board_request, chat, group_chat, building, upload, shuttle_bus, schedule, notification
+from app.routers import user, email_verification, post, contact, report, alarm, board_request, chat, group_chat, building, upload, shuttle_bus, schedule, notification, block
 import json
 
 from app.db.database import Base, engine, create_database_if_not_exists
@@ -34,6 +34,8 @@ from app.models.schedule import Course
 from app.models.user_schedule import UserSchedule
 # 🆕 Notification 모델 import 추가
 from app.models.notification import Notification
+# 🆕 Block 모델 import 추가
+from app.models.block import Block
 
 from dotenv import load_dotenv
 import os
@@ -140,6 +142,7 @@ app.include_router(upload.router)
 app.include_router(shuttle_bus.router)
 app.include_router(schedule.router)
 app.include_router(notification.router)  # 🆕 알림 라우터 추가
+app.include_router(block.router)  # 🆕 차단 라우터 추가
 
 
 

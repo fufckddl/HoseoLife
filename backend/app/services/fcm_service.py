@@ -85,11 +85,19 @@ def send_fcm_to_user(db, user_id: int, title: str, body: str, data: Optional[dic
     print(f"✅ Expo Push Token: {user.fcm_token[:20]}...")
     
     # FCM 토큰 형식 확인 (Expo Push Token)
-    if not user.fcm_token.startswith('ExponentPushToken'):
+    if not user.fcm_token.startswith('ExponentPushToken') and not user.fcm_token.startswith('ExpoPushToken'):
         print(f"❌ 잘못된 Expo Push Token 형식: {user.fcm_token[:30]}...")
         return {"message": "Invalid Expo Push Token format."}
     
-    print(f"✅ Expo Push Token 형식 확인됨")
+    # 토큰 환경 감지 (projectId 명시 토큰 기준)
+    if user.fcm_token.startswith('ExponentPushToken'):
+        environment = "expo_go"  # Expo Go 환경 (placeholder 아이콘 사용)
+    elif user.fcm_token.startswith('ExpoPushToken'):
+        environment = "testflight"  # TestFlight/App Store 환경 (앱 아이콘 사용)
+    else:
+        environment = "unknown"
+    
+    print(f"✅ Expo Push Token 형식 확인됨 (환경: {environment})")
     
     print(f"✅ 토큰 형식 확인됨")
     
@@ -119,6 +127,64 @@ def send_expo_notification(token, title, body, data=None):
     """Expo Push Token을 사용한 알림 전송"""
     import requests
     
+    # 알림 타입에 따른 채널 설정
+    notification_type = data.get("type", "general") if data else "general"
+    channel_id = "default"
+    
+    if notification_type == "chat_message":
+        channel_id = "chat"
+    elif notification_type in ["comment", "my_post_comment"]:
+        channel_id = "comment"
+    
+    # 🎯 토큰 환경별 아이콘 설정 (토큰 형식에 관계없이 올바른 아이콘 사용)
+    is_expo_go = token.startswith('ExponentPushToken')
+    is_testflight = token.startswith('ExpoPushToken')
+    
+    print(f"🔍 토큰 환경 감지: {is_expo_go and 'Expo Go' or is_testflight and 'TestFlight/App Store' or 'Unknown'}")
+    
+    # iOS 아이콘 설정 (토큰 형식에 관계없이 앱 아이콘 사용)
+    ios_icon_config = {
+        "icon": "AppIcon",  # 앱 아이콘 사용
+        "iconType": "app_icon",  # 앱 아이콘 타입
+        "useAppIcon": True,  # 앱 아이콘 사용 명시
+        "preferAppIcon": True  # 앱 아이콘 우선 사용
+    }
+    
+    # 모든 환경에서 HoseoLife 로고 사용 (Expo Go, TestFlight 모두)
+    if is_expo_go:
+        print("📱 Expo Go 환경 - HoseoLife 로고 강제 사용")
+        # Expo Go 환경에서도 HoseoLife 로고 사용
+        ios_icon_config.update({
+            "icon": "AppIcon",  # HoseoLife 앱 아이콘 사용
+            "iconType": "app_icon",
+            "forceAppIcon": True,  # 앱 아이콘 강제 사용
+            "overrideExpoIcon": True,  # Expo 기본 아이콘 오버라이드
+            "useCustomIcon": True,  # 커스텀 아이콘 사용
+            "iconSource": "hoseolife"  # HoseoLife 아이콘 소스 명시
+        })
+    elif is_testflight:
+        print("📱 TestFlight/App Store 환경 - HoseoLife 로고 강제 설정")
+        # TestFlight 환경에서는 더 명시적인 아이콘 설정
+        ios_icon_config.update({
+            "icon": "AppIcon",
+            "iconType": "app_icon",
+            "forceAppIcon": True,  # 앱 아이콘 강제 사용
+            "overrideDefaultIcon": True,  # 기본 아이콘 오버라이드
+            "appIconPriority": "high",  # 앱 아이콘 우선순위 높음
+            "useCustomIcon": True,  # 커스텀 아이콘 사용
+            "iconSource": "hoseolife"  # HoseoLife 아이콘 소스 명시
+        })
+    else:
+        print("📱 기타 환경 - HoseoLife 로고 사용")
+        # 기타 환경에서도 HoseoLife 로고 사용
+        ios_icon_config.update({
+            "icon": "AppIcon",
+            "iconType": "app_icon",
+            "forceAppIcon": True,
+            "useCustomIcon": True,
+            "iconSource": "hoseolife"
+        })
+    
     message = {
         "to": token,
         "title": title,
@@ -126,12 +192,107 @@ def send_expo_notification(token, title, body, data=None):
         "data": data if data else {},
         "sound": "default",
         "priority": "high",
-        "channelId": "default"
+        "channelId": channel_id,
+        "badge": 1,  # iOS 배지 설정
+        "ttl": 3600,  # 1시간 TTL
+        "expiration": 86400,  # 24시간 만료
+        # 🎯 전역 아이콘 설정 (모든 환경에서 HoseoLife 로고 사용)
+        "icon": "AppIcon",
+        # Android 전용 설정 (강화)
+        "android": {
+            "priority": "high",
+            "channelId": channel_id,
+            "sound": "default",
+            "vibrate": [0, 250, 250, 250],
+            "lightColor": "#FF231F7C",
+            "visibility": "public",
+            "importance": "max",
+            "notification": {
+                "title": title,
+                "body": body,
+                "sound": "default",
+                "vibrate": [0, 250, 250, 250],
+                "lightColor": "#FF231F7C",
+                "visibility": "public",
+                "importance": "max",
+                "priority": "high",
+                "defaultSound": True,
+                "defaultVibrateTimings": True,
+                "defaultLightSettings": True,
+                "autoCancel": False,
+                "ongoing": False,
+                "showWhen": True,
+                "when": None,
+                "ticker": f"{title}: {body}",
+                "subText": None,
+                "number": 1,
+                "category": "message",
+                "localOnly": False,
+                "sticky": False,
+                "tag": f"hoseolife_{channel_id}",
+                "color": "#FF231F7C",
+                "smallIcon": "ic_notification",  # HoseoLife 알림 아이콘
+                "largeIcon": "ic_launcher",  # HoseoLife 로고 아이콘
+                "forceIcon": True,  # 아이콘 강제 사용
+                "bigText": body if len(body) > 50 else None,
+                "bigTextStyle": True,
+                "inboxStyle": False,
+                "actions": [],
+                "remoteInputHistory": None,
+                "extras": {
+                    "android.support.wearable.notifications.VOICE_REPLY": True
+                }
+            }
+        },
+        # iOS 전용 설정 (강화) - 토큰 형식에 관계없이 올바른 아이콘 사용
+        "ios": {
+            "sound": "default",
+            "badge": 1,
+            "priority": "high",
+            "alert": {
+                "title": title,
+                "body": body
+            },
+            "category": "MESSAGE",
+            "threadId": "hoseolife",
+            "mutableContent": True,
+            "contentAvailable": True,
+            "interruptionLevel": "active",
+            "relevanceScore": 1.0,
+            "sticker": None,
+            "attachments": [],
+            "targetContentIdentifier": f"hoseolife_{channel_id}",
+            "summaryArgument": title,
+            "summaryArgumentCount": 1,
+            "launchImageName": None,
+            "critical": False,
+            "criticalSound": None,
+            "customData": data if data else {},
+            # 🎯 iOS 알림 아이콘 설정 (모든 환경에서 HoseoLife 로고 강제 사용)
+            **ios_icon_config,
+            # 🎯 추가 iOS 아이콘 강제 설정 (Expo Go에서도 HoseoLife 로고 사용)
+            "notificationIcon": "AppIcon",  # 알림 아이콘 명시
+            "appIcon": "AppIcon",  # 앱 아이콘 명시
+            "customIcon": "hoseolife_logo",  # 커스텀 HoseoLife 로고
+            "iconOverride": True,  # 아이콘 오버라이드
+            "preventDefaultIcon": True,  # 기본 아이콘 방지
+            # 🎯 TestFlight 환경에서 더 강력한 아이콘 설정
+            "bundleId": "com.dlckdfuf.camsaw",  # 번들 ID 명시
+            "appName": "HoseoLife",  # 앱 이름 명시
+            "forceAppIconUsage": True,  # 앱 아이콘 강제 사용
+            "disableExpoIcon": True,  # Expo 아이콘 비활성화
+            "useNativeIcon": True  # 네이티브 아이콘 사용
+        }
     }
     
     print(f"📤 Expo API 요청 전송:")
     print(f"   URL: https://exp.host/--/api/v2/push/send")
-    print(f"   메시지: {message}")
+    print(f"   토큰: {token[:20]}...")
+    print(f"   제목: {title}")
+    print(f"   내용: {body}")
+    print(f"   채널: {channel_id}")
+    print(f"   환경: {is_expo_go and 'Expo Go' or is_testflight and 'TestFlight/App Store' or 'Unknown'}")
+    print(f"   아이콘: HoseoLife 로고 (모든 환경에서 강제 사용)")
     
     try:
         response = requests.post(
@@ -142,7 +303,7 @@ def send_expo_notification(token, title, body, data=None):
                 "Accept-encoding": "gzip, deflate"
             },
             json=message,
-            timeout=10
+            timeout=30
         )
         
         print(f"📥 Expo API 응답:")
@@ -167,6 +328,22 @@ def send_expo_notification(token, title, body, data=None):
     except Exception as e:
         print(f"❌ Expo API 요청 실패: {e}")
         return {"success": False, "error": str(e)}
+
+def send_test_notification_to_user(db, user_id: int, title: str = "테스트 알림", body: str = "이것은 테스트 알림입니다."):
+    """특정 사용자에게 테스트 알림 전송"""
+    print(f"=== 테스트 알림 전송 시작 ===")
+    print(f"사용자 ID: {user_id}")
+    print(f"제목: {title}")
+    print(f"내용: {body}")
+    
+    data = {
+        "type": "test",
+        "test": True
+    }
+    
+    result = send_fcm_to_user(db, user_id, title, body, data)
+    print(f"테스트 알림 전송 결과: {result}")
+    return result
 
 
 
@@ -241,13 +418,14 @@ def send_news_notification(db, title: str, content: str):
     
     return send_fcm_to_multiple_users(db, user_ids, notification_title, notification_body, data)
 
-def send_my_post_notification(db, post_author_id: int, post_title: str, notification_type: str, post_id: int = None):
+def send_my_post_notification(db, post_author_id: int, post_title: str, notification_type: str, post_id: int = None, comment_id: int = None):
     """내가 작성한 게시글 관련 알림 전송"""
     print(f"=== 내 게시글 알림 전송 시작 ===")
     print(f"게시글 작성자 ID: {post_author_id}")
     print(f"게시글 제목: {post_title}")
     print(f"알림 타입: {notification_type}")
     print(f"게시글 ID: {post_id}")
+    print(f"댓글 ID: {comment_id}")
     
     if notification_type == "comment":
         title = "내 게시글에 댓글이 달렸습니다"
@@ -272,6 +450,15 @@ def send_my_post_notification(db, post_author_id: int, post_title: str, notifica
             "type": "my_post_hot", 
             "post_title": post_title,
             "post_id": str(post_id) if post_id else None
+        }
+    elif notification_type == "reply":
+        title = "내 댓글에 대댓글이 달렸습니다"
+        body = f"'{post_title}' 게시글에서 내 댓글에 대댓글이 달렸습니다."
+        data = {
+            "type": "reply", 
+            "post_title": post_title,
+            "post_id": str(post_id) if post_id else None,
+            "comment_id": str(comment_id) if comment_id else None
         }
     else:
         print(f"❌ 잘못된 알림 타입: {notification_type}")

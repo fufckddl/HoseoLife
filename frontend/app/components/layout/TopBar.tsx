@@ -71,7 +71,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         ) : showLogo ? (
           <View style={styles.logoContainer}>
             <Image 
-              source={require('../../../assets/images/hoseolife_logo.png')} 
+              source={require('../../../assets/images/logo_hoseolife.png')} 
               style={styles.logoImage}
               resizeMode="contain"
             />

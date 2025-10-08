@@ -213,10 +213,33 @@ export default function NotificationsScreen() {
       
       // 알림 타입에 따라 해당 페이지로 이동
       const data = item.data ? JSON.parse(item.data) : {};
-      if (item.notification_type === 'comment' || item.notification_type === 'heart') {
-        router.push(`/pages/post-detail?id=${data.post_id}`);
-      } else if (item.notification_type === 'chat_message') {
-        router.push(`/pages/chat-room?id=${data.room_id}&type=${data.room_type}`);
+      const notificationType = item.notification_type || data.type;
+      
+      if (notificationType === 'comment' || 
+          notificationType === 'heart' || 
+          notificationType === 'reply' ||
+          notificationType === 'my_post_comment' ||
+          notificationType === 'my_post_heart' ||
+          notificationType === 'my_post_hot') {
+        // 게시글 관련 알림
+        let postUrl = `/pages/post-detail?id=${data.post_id}`;
+        
+        // 대댓글 알림인 경우 댓글 ID도 포함
+        if (notificationType === 'reply' && data.comment_id) {
+          postUrl += `&comment_id=${data.comment_id}`;
+        }
+        
+        // 네비게이션 전 잠시 대기 후 replace 사용 (더 확실한 네비게이션)
+        setTimeout(() => {
+          router.replace(postUrl);
+        }, 500);
+      } else if (notificationType === 'chat_message') {
+        // 채팅 관련 알림
+        const roomType = data.room_type || 'dm';
+        // 네비게이션 전 잠시 대기 후 replace 사용 (더 확실한 네비게이션)
+        setTimeout(() => {
+          router.replace(`/pages/chat-room?id=${data.room_id}&type=${roomType}`);
+        }, 500);
       }
     };
 

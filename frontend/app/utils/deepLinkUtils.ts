@@ -6,6 +6,7 @@ export interface DeepLinkData {
   id: string;
   roomId?: string;
   chatType?: string; // 채팅방 타입 (dm, group)
+  commentId?: string; // 대댓글 ID (선택사항)
 }
 
 /**
@@ -28,11 +29,13 @@ export function parseDeepLink(url: string): DeepLinkData | null {
     // 게시글 딥링크 처리
     if (hostname === 'post') {
       const postId = searchParams.get('id');
+      const commentId = searchParams.get('comment_id');
       if (postId) {
-        console.log('✅ 게시글 딥링크 파싱 성공:', postId);
+        console.log('✅ 게시글 딥링크 파싱 성공:', postId, commentId ? `(댓글: ${commentId})` : '');
         return {
           type: 'post',
-          id: postId
+          id: postId,
+          commentId: commentId || undefined
         };
       }
     }
@@ -61,34 +64,9 @@ export function parseDeepLink(url: string): DeepLinkData | null {
   }
 }
 
-/**
- * 딥링크 데이터를 기반으로 적절한 화면으로 이동합니다
- * @param data 딥링크 데이터
- */
-export function handleDeepLinkNavigation(data: DeepLinkData): void {
-  try {
-    console.log('🧭 딥링크 네비게이션 시작:', data);
-    
-    switch (data.type) {
-      case 'post':
-        console.log('📄 게시글 페이지로 이동:', data.id);
-        router.push(`/pages/post-detail?id=${data.id}`);
-        break;
-        
-      case 'chat':
-        console.log('💬 채팅방으로 이동:', data.roomId, data.chatType);
-        router.push(`/pages/chat-room?id=${data.roomId}&type=${data.chatType}`);
-        break;
-        
-      default:
-        console.log('❌ 알 수 없는 딥링크 타입:', data.type);
-        break;
-    }
-    
-  } catch (error) {
-    console.error('❌ 딥링크 네비게이션 오류:', error);
-  }
-}
+
+// 🗑️ _layout.tsx에서 직접 알림 처리를 하므로 이 함수들은 더 이상 사용하지 않음
+// handleChatNavigation, handleDeepLinkNavigation 함수 제거됨r
 
 /**
  * 딥링크 이벤트 리스너를 설정합니다
@@ -103,7 +81,9 @@ export function setupDeepLinkListener(): () => void {
       
       const deepLinkData = parseDeepLink(event.url);
       if (deepLinkData) {
-        handleDeepLinkNavigation(deepLinkData);
+        // 🔧 _layout.tsx에서 직접 처리하므로 여기서는 로그만 남김
+        console.log('🔗 파싱된 딥링크 데이터:', deepLinkData);
+        console.log('ℹ️ 실제 네비게이션은 _layout.tsx에서 처리됨');
       }
     } catch (error) {
       console.error('❌ 딥링크 처리 실패 (무시):', error);
@@ -120,7 +100,9 @@ export function setupDeepLinkListener(): () => void {
         try {
           const deepLinkData = parseDeepLink(url);
           if (deepLinkData) {
-            handleDeepLinkNavigation(deepLinkData);
+            // 🔧 _layout.tsx에서 직접 처리하므로 여기서는 로그만 남김
+            console.log('🔗 초기 딥링크 파싱 성공:', deepLinkData);
+            console.log('ℹ️ 실제 네비게이션은 _layout.tsx에서 처리됨');
           }
         } catch (deepLinkError) {
           console.error('❌ 초기 딥링크 처리 실패 (무시):', deepLinkError);
