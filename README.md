@@ -1,4 +1,4 @@
-# CamSaw - 실시간 채팅 앱
+# HoseoLife - 호서대학교 커뮤니티
 
 React Native Expo와 FastAPI를 사용한 실시간 1:1 채팅 및 그룹 채팅 애플리케이션입니다.
 
