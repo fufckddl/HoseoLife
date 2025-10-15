@@ -27,14 +27,22 @@ export async function getBuildings(): Promise<Building[]> {
   
   try {
     // API에서 건물 데이터 가져오기
-    const buildings = await buildingService.getAllBuildings();
-    cachedBuildings = buildings;
+    const apiBuildings = await buildingService.getAllBuildings();
+    // 하드코딩된 건물과 API 건물 병합
+    const allBuildings = [...hoseoBuildings, ...apiBuildings];
+    
+    // 중복 ID 제거 (나중에 온 것 우선)
+    const uniqueBuildings = Array.from(
+      new Map(allBuildings.map(b => [b.id, b])).values()
+    );
+    
+    cachedBuildings = uniqueBuildings;
     lastFetchTime = now;
-    return buildings;
+    return uniqueBuildings;
   } catch (error) {
     console.error('건물 데이터 가져오기 실패:', error);
-    // API 실패 시 빈 배열 반환
-    return [];
+    // API 실패 시에도 하드코딩된 건물은 반환
+    return hoseoBuildings;
   }
 }
 
@@ -133,7 +141,10 @@ export async function findBuildingAtLocation(latitude: number, longitude: number
   try {
     const buildings = await getBuildings();
     
-    for (const building of buildings) {
+    // 하드코딩된 건물과 API 건물 병합
+    const allBuildings = [...hoseoBuildings, ...buildings];
+    
+    for (const building of allBuildings) {
       if (building.building_type === 'rectangle') {
         if (isPointInRectangle({ latitude, longitude }, building.coordinates)) {
           return building;
@@ -156,8 +167,11 @@ export async function isWithinHoseoCampus(latitude: number, longitude: number): 
   try {
     const buildings = await getBuildings();
     
+    // 하드코딩된 건물과 API 건물 병합
+    const allBuildings = [...hoseoBuildings, ...buildings];
+    
     // 모든 건물의 반지름 내에 있는지 확인
-    for (const building of buildings) {
+    for (const building of allBuildings) {
       const distance = calculateDistance(latitude, longitude, building.latitude, building.longitude);
       if (distance <= building.radius) {
         return true;
@@ -172,7 +186,26 @@ export async function isWithinHoseoCampus(latitude: number, longitude: number): 
 }
 
 // 기존 정적 데이터는 하위 호환성을 위해 유지 (점진적 제거 예정)
-export const hoseoBuildings: Building[] = [];
+export const hoseoBuildings: Building[] = [
+  {
+    id: "hardcoded-custom-location-1",
+    name: "커스텀 위치",
+    description: "사용자 지정 위치 영역",
+    campus: "cheonan",
+    latitude: 36.741242,
+    longitude: 127.074263,
+    building_type: "rectangle",
+    coordinates: [
+      { latitude: 36.741242, longitude: 127.074263 },
+      { latitude: 36.741425, longitude: 127.074691 },
+      { latitude: 36.741159, longitude: 127.075026 },
+      { latitude: 36.740936, longitude: 127.074534 }
+    ],
+    radius: 50,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+];
 
 // 초기 데이터 로드
 export async function initializeBuildingData(): Promise<void> {

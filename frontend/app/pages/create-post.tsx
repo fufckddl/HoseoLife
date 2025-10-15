@@ -274,24 +274,17 @@ export default function CreatePostScreen() {
 
       console.log('게시글 생성 시도:', postData);
 
-      const postResponse = await fetch(`${API_BASE_URL}/posts/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(postData)
+      // postService를 사용하여 게시글 생성 (타임아웃 및 에러 처리 포함)
+      const createdPost = await postService.createPost({
+        title: postData.title,
+        content: postData.content,
+        category: postData.category,
+        building_name: postData.building_name,
+        building_latitude: postData.building_latitude,
+        building_longitude: postData.building_longitude,
+        image_urls: postData.image_urls
       });
-
-      if (!postResponse.ok) {
-        const errorText = await postResponse.text();
-        console.error('게시글 생성 실패:', errorText);
-        console.error('응답 상태:', postResponse.status);
-        console.error('응답 헤더:', postResponse.headers);
-        throw new Error(`게시글 생성 실패: ${postResponse.status} - ${errorText}`);
-      }
-
-      const createdPost = await postResponse.json();
+      
       const postId = createdPost.id;
       console.log('게시글 생성 성공, ID:', postId);
 
@@ -396,7 +389,20 @@ export default function CreatePostScreen() {
       console.error('에러 타입:', typeof error);
       console.error('에러 메시지:', error instanceof Error ? error.message : String(error));
       console.error('에러 스택:', error instanceof Error ? error.stack : '스택 없음');
-      Alert.alert('오류', '게시글 작성에 실패했습니다.');
+      
+      let errorMessage = '게시글 작성에 실패했습니다.';
+      
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = '네트워크 연결이 불안정합니다. 다시 시도해주세요.';
+        } else if (error.message.includes('Network request timed out')) {
+          errorMessage = '서버 응답이 지연되고 있습니다. 다시 시도해주세요.';
+        } else if (error.message.includes('fetch')) {
+          errorMessage = '네트워크 연결을 확인해주세요.';
+        }
+      }
+      
+      Alert.alert('오류', errorMessage);
     } finally {
       setSubmitting(false);
     }

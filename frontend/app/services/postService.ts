@@ -9,7 +9,7 @@ export interface PostCreateData {
   building_name?: string;
   building_latitude?: string;
   building_longitude?: string;
-  image_urls?: string;
+  image_urls?: string[];
 }
 
 export interface PostResponse {
@@ -135,11 +135,18 @@ class PostService {
     try {
       const headers = await this.getAuthHeaders();
       
+      // 타임아웃을 위한 AbortController 설정
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
+      
       const response = await fetch(`${API_BASE_URL}/posts/`, {
         method: 'POST',
         headers,
         body: JSON.stringify(postData),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       console.log('게시글 생성 응답 상태:', response.status);
       console.log('게시글 생성 응답 헤더:', response.headers);
@@ -168,6 +175,15 @@ class PostService {
       }
     } catch (error) {
       console.error('게시글 생성 오류:', error);
+      
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error('네트워크 연결이 불안정합니다. 다시 시도해주세요.');
+        } else if (error.message.includes('Network request timed out')) {
+          throw new Error('서버 응답이 지연되고 있습니다. 다시 시도해주세요.');
+        }
+      }
+      
       throw error;
     }
   }

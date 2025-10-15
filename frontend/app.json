@@ -2,7 +2,7 @@
   "expo": {
     "name": "HoseoLife",
     "slug": "hoseolife",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/hoseolife_applogo.png",
     "scheme": "hoseolife",
@@ -25,7 +25,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "32",
+      "buildNumber": "33",
       "icon": "./assets/images/hoseolife_applogo_no_alpha.png",
       "displayName": "HoseoLife",
       "splash": {
@@ -77,7 +77,7 @@
       }
     },
     "android": {
-      "versionCode": 44,
+      "versionCode": 45,
       "package": "com.dlckdfuf.camsaw",
       "googleServicesFile": "./google-services.json",
       "icon": "./assets/icons/adaptive-foreground-new.png",

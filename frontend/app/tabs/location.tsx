@@ -17,6 +17,7 @@ import { BottomBar } from '../components/layout/BottomBar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildingService, Building } from '../services/buildingService';
 import { userService, UserInfo } from '../services/userService';
+import { hoseoBuildings, findBuildingAtLocation } from '../utils/buildingData';
 
 type LocationCoords = {
   latitude: number;
@@ -77,6 +78,7 @@ export default function LocationScreen() {
   // 건물 데이터
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
+  const [currentBuilding, setCurrentBuilding] = useState<Building | null>(null);
   
   // 사용자 정보 및 관리자 권한
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
@@ -193,11 +195,24 @@ export default function LocationScreen() {
             distanceInterval: 50,   // 50m 이동 시 (15m → 50m)
             mayShowUserSettingsDialog: true,
           },
-          (loc) => {
+          async (loc) => {
             const { latitude, longitude, accuracy } = loc.coords;
             const next = { latitude, longitude };
             setLocation(next);
             setLocationAccuracy(accuracy ?? null);
+
+            // 현재 건물 찾기
+            try {
+              const building = await findBuildingAtLocation(latitude, longitude);
+              setCurrentBuilding(building);
+              if (building) {
+                console.log(`🏢 현재 건물: ${building.name} (${building.id})`);
+              } else {
+                console.log('📍 현재 건물 없음 - 캠퍼스 외부');
+              }
+            } catch (error) {
+              console.error('건물 찾기 실패:', error);
+            }
 
             // 의미 있는 이동일 때만 지도 갱신 (거리 임계값 증가로 성능 향상)
             if (!region || !location || haversine(location, next) >= 100) {
@@ -312,11 +327,18 @@ export default function LocationScreen() {
     try {
       console.log('🏢 건물 데이터 가져오는 중...');
       const buildingsData = await buildingService.getAllBuildings();
-      setBuildings(buildingsData);
-      console.log(`✅ ${buildingsData.length}개 건물 데이터 로드 완료`);
+      // 하드코딩된 건물과 API 건물 병합
+      const allBuildings = [...hoseoBuildings, ...buildingsData];
+      // 중복 ID 제거 (나중에 온 것 우선)
+      const uniqueBuildings = Array.from(
+        new Map(allBuildings.map(b => [b.id, b])).values()
+      );
+      setBuildings(uniqueBuildings);
+      console.log(`✅ ${uniqueBuildings.length}개 건물 데이터 로드 완료 (하드코딩: ${hoseoBuildings.length}, API: ${buildingsData.length}, 중복제거: ${allBuildings.length - uniqueBuildings.length})`);
     } catch (error) {
       console.error('건물 데이터 가져오기 실패:', error);
-      setBuildings([]);
+      // API 실패 시에도 하드코딩된 건물은 표시
+      setBuildings(hoseoBuildings);
     }
   };
 
@@ -425,6 +447,16 @@ export default function LocationScreen() {
               {locationAccuracy ? `위치 정확도: ±${locationAccuracy.toFixed(0)}m` : '위치 확인됨'}
             </Text>
           </View>
+          
+          {/* 현재 건물 정보 표시 */}
+          {currentBuilding && (
+            <View style={styles.buildingInfo}>
+              <Ionicons name="business" size={16} color="#007AFF" />
+              <Text style={styles.buildingInfoText}>
+                현재 건물: {currentBuilding.name}
+              </Text>
+            </View>
+          )}
           
           {/* 건물 경계선 토글 버튼 - 관리자만 */}
           <TouchableOpacity 
@@ -688,6 +720,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#333',
+  },
+  buildingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F8FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  buildingInfoText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#007AFF',
   },
   map: { flex: 1, borderRadius: 20 },
 });
