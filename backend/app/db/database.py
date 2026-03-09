@@ -14,10 +14,10 @@ if not SQL_ECHO:
     logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
 
 # 데이터베이스 연결 정보 (UTF-8 인코딩 설정)
-DATABASE_URL = "mysql+pymysql://your-db-user:your-db-password@your-db-host:3306/your-db-name?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+DATABASE_URL = ""
 
 # 데이터베이스 생성용 URL (데이터베이스명 제외)
-CREATE_DB_URL = "mysql+pymysql://your-db-user:your-db-password@your-db-host:3306?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+CREATE_DB_URL = ""
 
 # 비밀번호 상수 정의 (URL 인코딩된 값)
 DB_PASSWORD = "your-database-password"
