@@ -33,9 +33,6 @@
         "resizeMode": "contain",
         "backgroundColor": "#FFFFFF"
       },
-      "config": {
-        "googleMapsApiKey": "your-google-maps-api-key"
-      },
       "bundleIdentifier": "com.dlckdfuf.camsaw",
       "associatedDomains": [
         "applinks:hoseolife.kro.kr"
@@ -117,11 +114,6 @@
           ]
         }
       ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "your-google-maps-api-key"
-        }
-      },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",

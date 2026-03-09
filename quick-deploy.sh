@@ -2,13 +2,17 @@
 
 echo "🚀 빠른 웹사이트 재배포 시작..."
 
+SERVER_USER="${SERVER_USER:-ec2-user}"
+SERVER_HOST="${SERVER_HOST:-your-server-host}"
+SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/Downloads/your-key.pem}"
+
 # 1. 코드 업로드
 echo "📤 코드 업로드 중..."
-rsync -avz -e "ssh -i ~/Downloads/camsaw.pem" --exclude node_modules --exclude .git --exclude dist site/ ec2-user@your-server-host:/camsaw/web/
+rsync -avz -e "ssh -i $SSH_KEY_PATH" --exclude node_modules --exclude .git --exclude dist site/ "$SERVER_USER@$SERVER_HOST:/camsaw/web/"
 
 # 2. 서버에서 재빌드 및 배포
 echo "🔨 서버에서 재빌드 중..."
-ssh -i ~/Downloads/camsaw.pem ec2-user@your-server-host << 'EOF'
+ssh -i "$SSH_KEY_PATH" "$SERVER_USER@$SERVER_HOST" << 'EOF'
 cd /camsaw/web
 npm run build
 sudo rm -rf /var/www/hoseolife.kro.kr/*

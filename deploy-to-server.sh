@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # 서버 정보
-SERVER_IP="your-server-host"
-SERVER_USER="ec2-user"
-PEM_FILE="$HOME/Downloads/camsaw.pem"
+SERVER_IP="${SERVER_IP:-your-server-host}"
+SERVER_USER="${SERVER_USER:-ec2-user}"
+PEM_FILE="${PEM_FILE:-$HOME/Downloads/your-key.pem}"
 
 echo "🚀 CamSaw 서버 배포 시작..."
 
